@@ -8,20 +8,27 @@
   // ---- Field
   const N = 32;                    // field is N x N tiles
   const BULLET_SPEED = 15;         // tiles per second
-  const SPAWN_RATE = 60;           // max bullets per second per cannon (larger counts -> heavier bullets)
+  const REL_RATE = 50;             // a release fires 50 balls per second, like the video...
+  const REL_MAX_TIME = 40;         // ...but never lasts longer than 40 s (huge counts fire faster)
+  const SPAWN_RATE = 60;           // max bullets per second per cannon (faster releases -> heavier bullets)
   const SWEEP = 0.78;              // cannon sweep, radians either side of the diagonal
   const CANNON_HP = 30;            // enemy captures of the tile under a cannon it can survive
   const COLLAPSE_TIME = 3.0;       // a wrecked colour's land flows to the wrecker over this time
-  const OVERTIME_AT = 120, OVERTIME_STEP = 40; // after 2:00 every shot hits x2, x4, x8...
+  const OVERTIME_AT = 100, OVERTIME_STEP = 35; // after 1:40 every shot hits x2, x4, x8...
+  const INTRO_TIME = 2.8;          // round card ("Раунд 1", today's drum) and the cube drop
   const INSET = 1.6;               // cannon pivot sits this far inside its corner
   const PIVOTS = [[INSET, INSET], [N - INSET, INSET], [INSET, N - INSET], [N - INSET, N - INSET]];
   const BASE_ANG = [Math.PI / 4, Math.PI * 3 / 4, -Math.PI / 4, -Math.PI * 3 / 4];
+  // Neutral cube dropped in the middle of the field: balls bounce off it and push it around.
+  const CUBE_R = 1.3, CUBE_PUSH = 0.07, CUBE_DRAG = 1.2, CUBE_MAX_V = 3;
 
   // ---- Side box (local units: 100 x 100)
   // The two dividers around the narrow spinner slot rise above the other slots as
   // posts, so a marble can only drop into the spinner from above, never roll in.
   const CEIL = 13, SLOT_TOP = 82, POST_TOP = 75, POST_R = 1.2, TRIGGER_Y = 91, X_A = 300 / 7, X_B = 400 / 7;
   const MARBLES = 3, MARBLE_R = 2.9, GRAV = 240, SPAWN_VY = 45;
+  // Slot colours as in the video: coral x2 (pink while x4 is on), pale yellow spinner, green R.
+  const SLOT_X2 = '#e5484d', SLOT_X4 = '#ff5fae', SLOT_SPIN = '#ecd36f', SLOT_REL = '#2eb84f';
   // Sparse peg grid rising from bottom to top. Every row has a peg above each slot
   // divider, so pegs grow straight out of the dividers and guard the narrow spinner slot.
   const PEG_SPEED = 7, PEG_TOP = CEIL + 8, PEG_BOT = POST_TOP, PEG_FADE = 6;
@@ -30,44 +37,46 @@
   // the spinner and that slot is only reachable between pairs.
   const DIV_R = 4.6, MID_R = 3.4;
   const PEG_ROW_A = [[X_A / 4, MID_R], [X_A, DIV_R], [X_B, DIV_R], [100 - X_A / 4, MID_R]];
-  const PEG_ROW_B = [[X_A * 0.6, MID_R], [100 - X_A * 0.6, MID_R]];
   const PEG_ROW_C = [[X_A * 0.6, MID_R], [X_A, DIV_R], [X_B, DIV_R], [100 - X_A * 0.6, MID_R]];
   const PEG_ROW_E = [[X_A * 0.6, MID_R], [X_A, DIV_R], [100 - X_A * 0.6, MID_R]];
-  const PEG_ROW_F = [[X_A * 0.6, MID_R], [X_B, DIV_R], [100 - X_A * 0.6, MID_R]];
   const PEG_PATTERN = [PEG_ROW_A, PEG_ROW_C, PEG_ROW_A, PEG_ROW_E];
   const PEG_ROWS = PEG_PATTERN.length, PEG_SP = (PEG_BOT - PEG_TOP) / PEG_ROWS;
 
-  // ---- Spinner bonuses. Each tournament puts 5 random ones on the wheel.
-  const PLUS_BALLS = 200, X4_TIME = 45, SHIELD_TIME = 20, CLUSTER_SHELLS = 3, CLUSTER_N = 36;
-  const HALF_LAND_TIME = 1.0, CANNONBALL_HP = 150, TWIN_TIME = 20, FAN_N = 40;
+  // ---- Spinner bonuses. Each tournament puts 5 random ones on the drum.
+  const PLUS_BALLS = 200, X4_TIME = 45, SHIELD_TIME = 30, SHIELD_R = 3.4, CLUSTER_SHELLS = 3, CLUSTER_N = 36;
+  const HALF_LAND_TIME = 1.2, CANNONBALL_HP = 150, TWIN_TIME = 20, FAN_N = 40;
   const BOMB_R = 4.5, BOLTS = 6, BOLT_R = 1.6, FREEZE_TIME = 8, TURBO_TIME = 20, REPAIR_HP = 15, REPAIR_R = 4, GOLD_TIME = 30;
+  // label: on the drum; name: in lists; desc: caption after the drum stops.
   const BONUSES = {
-    plus: { label: '+200', name: '+200 шариков', color: '#e8a400' },
-    x4: { label: 'x4', name: 'x4 вместо x2 на 45 сек', color: '#2b9a52' },
-    shield: { label: 'ЩИТ', name: 'Щит на 20 сек', color: '#2f8fd8' },
-    cluster: { label: 'КЛАСТЕР', name: 'Кластерная пушка: 3 снаряда', color: '#f06a1d' },
-    half: { label: 'HALF LAND', name: 'Half Land: половина земли лидера', color: '#7c4ddc' },
-    ball: { label: 'ЯДРО', name: 'Ядро: один шар на 150 клеток', color: '#5f6b7a' },
-    twin: { label: 'ДВОЙНАЯ', name: 'Двойная пушка на 20 сек', color: '#c2255c' },
-    fan: { label: 'ВЕЕР', name: 'Веер: 40 шариков разом', color: '#be4bdb' },
-    bomb: { label: 'БОМБА', name: 'Бомба по земле лидера', color: '#2b2f36' },
-    bolt: { label: 'МОЛНИЯ', name: 'Молния: 6 ударов по врагам', color: '#4263eb' },
-    freeze: { label: 'ЛЁД', name: 'Лёд: соперники замерли на 8 сек', color: '#1098ad' },
-    turbo: { label: 'ТУРБО', name: 'Турбо: своё поле ×2 на 20 сек', color: '#e03131' },
-    div: { label: '÷2', name: 'Числа соперников ÷2', color: '#364fc7' },
-    repair: { label: 'РЕМОНТ', name: 'Ремонт: +15 прочности и земля вокруг', color: '#8d5a2b' },
-    gold: { label: '+ШАРИК', name: '+1 золотой шарик на 30 сек', color: '#0ca678' }
+    plus: { label: '+200', name: '+200 выстрелов', desc: '200 дополнительных выстрелов', color: '#e8a400' },
+    x4: { label: '×4', name: '×4 вместо ×2 на 45 сек', desc: 'Лунка ×4 вместо ×2 на 45 секунд', color: '#9b5de5' },
+    shield: { label: 'ЩИТ', name: 'Щит пушки на 30 сек', desc: 'Пушка под щитом 30 секунд', color: '#2fb3c9' },
+    cluster: { label: 'КЛАСТЕР', name: 'Кластер: 3 снаряда', desc: 'Залп из 3 кластерных снарядов', color: '#f06a1d' },
+    half: { label: 'HALF LAND', name: 'Half Land: разрезать самую большую землю', desc: 'Самая большая земля разрезана пополам', color: '#e64980' },
+    ball: { label: 'ЯДРО', name: 'Ядро на 150 клеток', desc: 'Огромное ядро на 150 клеток', color: '#5f6b7a' },
+    twin: { label: 'ДВОЙНАЯ', name: 'Двойная пушка на 20 сек', desc: 'Двойная пушка на 20 секунд', color: '#c2255c' },
+    fan: { label: 'ВЕЕР', name: 'Веер: 40 шариков разом', desc: '40 шариков веером разом', color: '#be4bdb' },
+    bomb: { label: 'БОМБА', name: 'Бомба по самой большой земле', desc: 'Бомба по самой большой земле', color: '#2b2f36' },
+    bolt: { label: 'МОЛНИЯ', name: 'Молния: 6 ударов по врагам', desc: '6 молний по чужой земле', color: '#4263eb' },
+    freeze: { label: 'ЛЁД', name: 'Лёд: соперники замерли на 8 сек', desc: 'Соперники замерли на 8 секунд', color: '#1098ad' },
+    turbo: { label: 'ТУРБО', name: 'Турбо: своё поле ×2 на 20 сек', desc: 'Своё поле вдвое быстрее 20 секунд', color: '#e03131' },
+    div: { label: '÷2', name: 'Числа соперников ÷2', desc: 'Числа всех соперников ÷2', color: '#364fc7' },
+    repair: { label: 'РЕМОНТ', name: 'Ремонт: +15 прочности и земля вокруг', desc: '+15 прочности пушке и земля вокруг', color: '#8d5a2b' },
+    gold: { label: '+ШАРИК', name: '+1 золотой шарик на 30 сек', desc: 'Золотой шарик на 30 секунд', color: '#0ca678' }
   };
   const BONUS_IDS = Object.keys(BONUSES);
   const WHEEL_SIZE = 5;
 
+  // Slot-machine drum over the top edge of the field, as in the video: the bonuses
+  // sit on bands around a horizontal cylinder held by arms in the spinning colour.
   class Roulette {
     constructor(battle, items) {
       this.b = battle;
-      this.items = items;          // bonus ids on this wheel
+      this.items = items;          // bonus ids on this drum
+      this.bands = items.length * Math.ceil(10 / items.length); // items repeat around the drum
       this.queue = [];
       this.cur = null;
-      this.ang = 0;
+      this.pos = 0;                // band index facing the viewer (float)
     }
     request(t) { this.queue.push(t); }
     cancel(t) {
@@ -75,20 +84,16 @@
       if (this.cur && this.cur.team === t) this.cur = null;
     }
     busy() { return !!this.cur || this.queue.length > 0; }
-    segAt(ang) {
-      const n = this.items.length, seg = Math.PI * 2 / n;
-      let a = (-Math.PI / 2 - ang) % (Math.PI * 2);
-      if (a < 0) a += Math.PI * 2;
-      return Math.floor(a / seg) % n;
+    itemAt(band) {
+      const n = this.items.length;
+      return this.items[((band % n) + n) % n];
     }
     start(t) {
-      const rng = this.b.rng;
-      const n = this.items.length, seg = Math.PI * 2 / n;
+      const rng = this.b.rng, n = this.items.length;
       const result = rng.int(n);
-      const target = -Math.PI / 2 - (result + 0.15 + rng() * 0.7) * seg;
-      const minEnd = this.ang + Math.PI * 2 * 4;
-      const a1 = target + Math.PI * 2 * Math.ceil((minEnd - target) / (Math.PI * 2));
-      this.cur = { team: t, result, t: 0, dur: 2.8, a0: this.ang, a1, phase: 'spin', lastSeg: this.segAt(this.ang) };
+      let k = Math.ceil(this.pos + this.bands * 3);
+      while (((k % n) + n) % n !== result) k++;
+      this.cur = { team: t, result, t: 0, dur: 2.8, p0: this.pos, p1: k, phase: 'spin', last: Math.round(this.pos) };
       MOR.Sound.play('spin');
     }
     step(dt) {
@@ -100,96 +105,131 @@
       c.t += dt;
       if (c.phase === 'spin') {
         const k = Math.min(1, c.t / c.dur);
-        this.ang = c.a0 + (c.a1 - c.a0) * MOR.easeOutQuart(k);
-        const s = this.segAt(this.ang);
-        if (s !== c.lastSeg) { c.lastSeg = s; MOR.Sound.play('tick'); }
-        if (k >= 1) { c.phase = 'show'; c.t = 0; MOR.Sound.play('prize'); }
-      } else if (c.t >= 1.0) {
+        this.pos = c.p0 + (c.p1 - c.p0) * MOR.easeOutQuart(k);
+        const s = Math.round(this.pos);
+        if (s !== c.last) { c.last = s; MOR.Sound.play('tick'); }
+        if (k >= 1) { c.phase = 'show'; c.t = 0; this.pos = c.p1; MOR.Sound.play('prize'); }
+      } else if (c.t >= 1.6) {
         this.cur = null;
         this.b.applyItem(c.team, this.items[c.result]);
       }
     }
-    render(ctx, cx, cy, R) {
+    render(ctx, F) {
       const c = this.cur;
       if (!c) return;
       const team = this.b.teams[c.team];
-      const n = this.items.length, seg = Math.PI * 2 / n;
+      const W = F.s * 0.42, R = F.s * 0.075;           // drum width and radius
+      const cx = F.x + F.s / 2, cy = F.y + R * 1.25;
+      const capW = F.s * 0.035, x0 = cx - W / 2;
       const fade = Math.min(1, (c.phase === 'spin' ? c.t : 1) / 0.2);
+      const da = Math.PI * 2 / this.bands;
       ctx.save();
       ctx.globalAlpha = fade;
-      ctx.fillStyle = 'rgba(6,8,16,0.55)';
-      ctx.beginPath(); ctx.arc(cx, cy, R * 1.22, 0, Math.PI * 2); ctx.fill();
-
-      for (let i = 0; i < n; i++) {
-        const it = BONUSES[this.items[i]];
-        const a0 = this.ang + i * seg, a1 = a0 + seg;
-        ctx.fillStyle = it.color;
-        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, a0, a1); ctx.closePath(); ctx.fill();
-        if (c.phase === 'show' && i === c.result) {
-          ctx.fillStyle = 'rgba(255,255,255,' + (0.25 + 0.2 * Math.sin(c.t * 18)) + ')';
-          ctx.fill();
-        }
-        ctx.strokeStyle = 'rgba(10,12,20,0.55)';
-        ctx.lineWidth = Math.max(1, R * 0.015);
-        ctx.stroke();
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(a0 + seg / 2);
-        ctx.fillStyle = '#ffffff';
-        const label = it.label;
-        const fs = R * (label.length > 7 ? 0.105 : label.length > 5 ? 0.125 : label.length > 3 ? 0.14 : 0.17);
-        ctx.font = Math.round(fs) + 'px ' + MOR.FONT;
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'rgba(0,0,0,0.5)';
-        ctx.shadowBlur = 3;
-        ctx.fillText(label, R * 0.9, 0);
-        ctx.restore();
-      }
-      // Rim in the spinning team's colour, with bulbs.
-      ctx.lineWidth = R * 0.09;
-      ctx.strokeStyle = team.color.hex;
-      ctx.beginPath(); ctx.arc(cx, cy, R * 1.04, 0, Math.PI * 2); ctx.stroke();
-      ctx.lineWidth = Math.max(1, R * 0.015);
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      ctx.beginPath(); ctx.arc(cx, cy, R * 1.085, 0, Math.PI * 2); ctx.stroke();
-      for (let i = 0; i < 18; i++) {
-        const a = i / 18 * Math.PI * 2 + this.ang * 0.15;
-        const on = (i + Math.floor(this.b.clock * 8)) % 2 === 0;
-        ctx.fillStyle = on ? '#fff6c8' : 'rgba(255,255,255,0.35)';
-        ctx.beginPath(); ctx.arc(cx + Math.cos(a) * R * 1.04, cy + Math.sin(a) * R * 1.04, R * 0.022, 0, Math.PI * 2); ctx.fill();
-      }
-      // Hub.
-      ctx.fillStyle = team.color.hex;
-      ctx.beginPath(); ctx.arc(cx, cy, R * 0.16, 0, Math.PI * 2); ctx.fill();
-      ctx.lineWidth = R * 0.03;
-      ctx.strokeStyle = team.color.light ? '#11141d' : '#ffffff';
-      ctx.stroke();
-      // Pointer.
-      ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = '#11141d';
-      ctx.lineWidth = Math.max(1, R * 0.02);
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - R * 0.86);
-      ctx.lineTo(cx - R * 0.09, cy - R * 1.2);
-      ctx.lineTo(cx + R * 0.09, cy - R * 1.2);
-      ctx.closePath();
-      ctx.fill(); ctx.stroke();
-
-      // Caption.
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const fs = Math.round(R * 0.12);
-      ctx.font = fs + 'px ' + MOR.FONT;
+
+      // Holder: two arms in the spinner's colour joined under the drum.
+      ctx.strokeStyle = team.color.hex;
+      ctx.lineWidth = capW * 0.9;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x0 - capW * 0.55, cy);
+      ctx.lineTo(x0 - capW * 0.55, cy + R * 1.35);
+      ctx.lineTo(x0 + W + capW * 0.55, cy + R * 1.35);
+      ctx.lineTo(x0 + W + capW * 0.55, cy);
+      ctx.stroke();
+      ctx.lineWidth = Math.max(1, capW * 0.2);
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      ctx.stroke();
+
+      // Bands on the cylinder: projected height shrinks towards the top and bottom.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0, cy - R, W, R * 2);
+      ctx.clip();
+      ctx.fillStyle = '#11141d';
+      ctx.fillRect(x0, cy - R, W, R * 2);
+      const base = Math.floor(this.pos) - Math.ceil(this.bands / 4) - 1;
+      for (let j = base; j <= base + Math.ceil(this.bands / 2) + 2; j++) {
+        const a = (j - this.pos) * da;
+        const a0 = Math.max(-Math.PI / 2, a - da / 2), a1 = Math.min(Math.PI / 2, a + da / 2);
+        if (a1 <= a0) continue;
+        const y0 = cy + R * Math.sin(a0), y1 = cy + R * Math.sin(a1);
+        const it = BONUSES[this.itemAt(j)];
+        ctx.fillStyle = it.color;
+        ctx.fillRect(x0, y0, W, y1 - y0);
+        const cosA = Math.cos(MOR.clamp(a, -Math.PI / 2, Math.PI / 2));
+        const lit = c.phase === 'show' && j === c.p1;
+        if (lit) {
+          ctx.fillStyle = 'rgba(255,255,255,' + (0.15 + 0.15 * Math.sin(c.t * 16)) + ')';
+          ctx.fillRect(x0, y0, W, y1 - y0);
+        }
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(x0, y1 - Math.max(0.5, R * 0.025), W, Math.max(0.5, R * 0.025));
+        if (cosA > 0.15) {
+          ctx.save();
+          ctx.translate(cx, (y0 + y1) / 2);
+          ctx.scale(1, cosA);
+          const fs = Math.min(R * 0.62, W * 0.95 / Math.max(2.2, it.label.length * 0.68));
+          ctx.font = Math.round(fs) + 'px ' + MOR.FONT;
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowColor = 'rgba(0,0,0,0.55)';
+          ctx.shadowBlur = 3;
+          ctx.fillText(it.label, 0, 1);
+          ctx.restore();
+        }
+      }
+      // Cylinder shading.
+      const g = ctx.createLinearGradient(0, cy - R, 0, cy + R);
+      g.addColorStop(0, 'rgba(0,0,0,0.7)');
+      g.addColorStop(0.3, 'rgba(255,255,255,0.12)');
+      g.addColorStop(0.5, 'rgba(255,255,255,0)');
+      g.addColorStop(0.8, 'rgba(0,0,0,0.15)');
+      g.addColorStop(1, 'rgba(0,0,0,0.75)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x0, cy - R, W, R * 2);
+      ctx.restore();
+
+      // End caps and frame.
+      ctx.fillStyle = team.color.hex;
+      ctx.strokeStyle = '#0b0d14';
+      ctx.lineWidth = Math.max(1, capW * 0.15);
+      for (const x of [x0 - capW, x0 + W]) {
+        MOR.roundRect(ctx, x, cy - R * 1.12, capW, R * 2.24, capW * 0.4);
+        ctx.fill(); ctx.stroke();
+      }
+      // Yellow arrow pointing at the winning band.
+      const ax = x0 - capW * 1.25;
+      ctx.fillStyle = '#ffd43b';
+      ctx.beginPath();
+      ctx.moveTo(ax, cy);
+      ctx.lineTo(ax - R * 0.7, cy - R * 0.42);
+      ctx.lineTo(ax - R * 0.7, cy - R * 0.16);
+      ctx.lineTo(ax - R * 1.35, cy - R * 0.16);
+      ctx.lineTo(ax - R * 1.35, cy + R * 0.16);
+      ctx.lineTo(ax - R * 0.7, cy + R * 0.16);
+      ctx.lineTo(ax - R * 0.7, cy + R * 0.42);
+      ctx.closePath();
+      ctx.fill();
+      ctx.lineWidth = Math.max(1, R * 0.06);
+      ctx.stroke();
+
+      // Caption: who spins, then what they won.
       const won = BONUSES[this.items[c.result]];
-      const caption = c.phase === 'show' ? won.name : 'Спиннер: ' + team.color.name;
-      const tw = ctx.measureText(caption).width + fs * 1.2;
-      const ty = cy + R * 1.38;
-      ctx.fillStyle = c.phase === 'show' ? won.color : 'rgba(10,12,22,0.85)';
+      const show = c.phase === 'show';
+      const caption = show ? won.desc : team.color.name + ' крутит';
+      const fs = Math.round(F.s * 0.036);
+      ctx.font = fs + 'px ' + MOR.FONT;
+      const tw = Math.min(F.s * 0.96, ctx.measureText(caption).width + fs * 1.4);
+      const ty = cy + R * 1.35 + capW * 0.45 + fs * 1.05;
+      ctx.fillStyle = show ? won.color : 'rgba(10,12,22,0.88)';
       MOR.roundRect(ctx, cx - tw / 2, ty - fs * 0.85, tw, fs * 1.7, fs * 0.5);
       ctx.fill();
+      ctx.lineWidth = Math.max(1, fs * 0.12);
+      ctx.strokeStyle = team.color.hex;
+      ctx.stroke();
       ctx.fillStyle = '#ffffff';
-      ctx.fillText(caption, cx, ty + 1);
+      ctx.fillText(caption, cx, ty + 1, F.s * 0.92);
       ctx.restore();
     }
   }
@@ -213,16 +253,12 @@
       this.tileCanvas.width = N; this.tileCanvas.height = N;
       this.tileCtx = this.tileCanvas.getContext('2d');
       this.img = this.tileCtx.createImageData(N, N);
-      this.shieldCanvas = document.createElement('canvas');
-      this.shieldCanvas.width = N; this.shieldCanvas.height = N;
-      this.shieldCtx = this.shieldCanvas.getContext('2d');
-      this.shieldImg = this.shieldCtx.createImageData(N, N);
 
       this.teams = colors.map((color, i) => ({
-        i, color, alive: true, count: 1,
+        i, color, alive: true, count: 1, pale: MOR.mix(color.rgb, [255, 255, 255], 0.42),
         x4Until: -1, shieldUntil: -1, twinUntil: -1, frozenUntil: -1, turboUntil: -1,
-        captured: 0, peak: 0, elimTime: null, spinBlocked: false,
-        rel: { active: false, end: 0, val: 0, spawn: 0 },
+        captured: 0, peak: 0, elimTime: null, lostAt: 0, spinBlocked: false,
+        rel: { active: false, total: 0, rate: 0, acc: 0, spawn: 0 },
         cannon: {
           x: PIVOTS[i][0], y: PIVOTS[i][1], base: BASE_ANG[i], ang: BASE_ANG[i], dead: false, hp: CANNON_HP, hit: 0,
           cell: Math.floor(PIVOTS[i][1]) * N + Math.floor(PIVOTS[i][0]),
@@ -252,6 +288,8 @@
       this.waves = [];
       this.strikes = [];   // bombs and lightning waiting to land
       this.bolts = [];     // lightning flashes being drawn
+      this.lasers = [];    // Half Land cuts being drawn
+      this.cube = { x: N / 2, y: N / 2, vx: 0, vy: 0, ang: Math.PI / 4, drop: 0, hit: 0, paint: -1 };
       this.elimOrder = [];
       let items = (opts.bonuses || []).filter((id) => BONUSES[id]);
       if (items.length < 2) items = rng.shuffle(BONUS_IDS.slice()).slice(0, WHEEL_SIZE);
@@ -281,7 +319,15 @@
       }
     }
 
-    shielded(t) { return this.teams[t].shieldUntil > this.time; }
+    shielded(t) { return this.teams[t].shieldUntil > this.time && !this.teams[t].cannon.dead; }
+    // The shield guards only the cannon: tiles of its owner inside a small bubble around it.
+    guarded(i) {
+      const o = this.owner[i];
+      if (!this.shielded(o)) return false;
+      const c = this.teams[o].cannon;
+      const dx = (i % N) + 0.5 - c.x, dy = ((i / N) | 0) + 0.5 - c.y;
+      return dx * dx + dy * dy < SHIELD_R * SHIELD_R;
+    }
     frozen(t) { return this.teams[t].frozenUntil > this.time; }
     working(t) { return t.alive && !t.cannon.dead; }
     enemiesOf(team) { return this.teams.filter((x) => x.alive && x !== team); }
@@ -292,7 +338,7 @@
 
     setCell(i, t) {
       const prev = this.owner[i];
-      if (prev === t) return false;
+      if (prev === t || this.guarded(i)) return false;
       this.owner[i] = t;
       this.counts[prev]--;
       this.counts[t]++;
@@ -328,8 +374,8 @@
     destroyCannon(t, by) {
       const tm = this.teams[t];
       tm.cannon.dead = true;
-      tm.count = Math.max(1, Math.round(tm.count + tm.rel.val));
-      tm.rel.val = 0;
+      tm.count = Math.max(1, Math.round(tm.count + tm.rel.acc));
+      tm.rel.acc = 0;
       tm.rel.active = false;
       tm.cannon.cluster = 0;
       tm.spinBlocked = false;
@@ -341,7 +387,7 @@
       MOR.Sound.play('boom');
       const cells = this.cellsOf(t, tm.cannon.x, tm.cannon.y);
       if (cells.length) {
-        this.waves.push({ team: by, target: t, cells, i: 0, force: true,
+        this.waves.push({ team: by, target: t, cells, i: 0,
           per: Math.max(1, Math.ceil(cells.length / (COLLAPSE_TIME / MOR.DT))) });
       }
     }
@@ -364,6 +410,7 @@
       const tm = this.teams[t];
       tm.alive = false;
       tm.elimTime = this.time;
+      tm.lostAt = this.clock;
       tm.rel.active = false;
       tm.spinBlocked = false;
       this.elimOrder.push(t);
@@ -407,12 +454,14 @@
     // ------------------------------------------------------------ slots & release
     onSlot(team, slot) {
       const box = team.box;
+      // While the cannon releases, all three slots are closed (as in the video).
+      if (team.rel.active) return;
       if (slot === 0) {
         const mult = team.x4Until > this.time ? 4 : 2;
         team.count *= mult;
         box.pop = 1;
         box.flash[0] = 1;
-        this.float('box' + team.i, X_A / 2, SLOT_TOP - 4, 'x' + mult, mult === 4 ? '#ffd84a' : '#7dffa8', 1, 0.8);
+        this.float('box' + team.i, X_A / 2, SLOT_TOP - 4, '×' + mult, mult === 4 ? '#ffb3dc' : '#ffd0d2', 1, 0.8);
         MOR.Sound.play(mult === 4 ? 'x4' : 'x2');
       } else if (slot === 1) {
         if (team.spinBlocked) return;
@@ -420,17 +469,19 @@
         box.flash[1] = 1;
         this.roulette.request(team.i);
       } else {
-        if (team.rel.active) return;
         box.flash[2] = 1;
         this.startRelease(team);
       }
     }
 
+    // Release: the cannon fires the whole count at a steady 50 balls per second while
+    // the counter runs down to 1. Huge counts fire faster so a release never tops 40 s.
     startRelease(team) {
       const r = team.rel;
       r.active = true;
-      r.end = this.time + MOR.clamp(0.35 + team.count / 120, 0.4, 3.0);
-      r.val = 0;
+      r.total = team.count;
+      r.rate = Math.max(REL_RATE, team.count / REL_MAX_TIME);
+      r.acc = 0;
       r.spawn = 1;
       MOR.Sound.play('release');
     }
@@ -438,23 +489,21 @@
     stepRelease(team, dt) {
       const r = team.rel;
       if (!r.active) return;
-      const left = r.end - this.time;
-      let v = left <= dt ? team.count : team.count * dt / left;
-      if (v > team.count) v = team.count;
+      const v = Math.min(team.count, r.rate * dt);
       team.count -= v;
-      r.val += v;
+      r.acc += v;
       r.spawn = Math.min(r.spawn + dt * SPAWN_RATE, 3);
-      while (r.spawn >= 1 && r.val >= 1) {
-        const hp = Math.floor(r.val);
-        r.val -= hp;
+      while (r.spawn >= 1 && r.acc >= 1) {
+        const hp = Math.floor(r.acc);
+        r.acc -= hp;
         r.spawn -= 1;
         this.fire(team, hp, 0);
       }
-      if (left <= dt) {
-        const restHp = Math.round(r.val + team.count);
-        if (restHp >= 1) this.fire(team, restHp, 0);
+      if (team.count <= 1e-9) {
+        const rest = Math.round(r.acc);
+        if (rest >= 1) this.fire(team, rest, 0);
         team.count = 1;
-        r.val = 0;
+        r.acc = 0;
         r.active = false;
       }
     }
@@ -499,11 +548,11 @@
           break;
         case 'x4':
           team.x4Until = Math.max(team.x4Until, this.time) + X4_TIME;
-          this.float(box, X_A / 2, 60, 'x4!', '#ffd84a', 1.4, 1.2);
+          this.float(box, X_A / 2, 60, '×4!', '#ffb3dc', 1.4, 1.2);
           break;
         case 'shield':
           team.shieldUntil = Math.max(team.shieldUntil, this.time) + SHIELD_TIME;
-          this.float('field', at.x, at.y, 'ЩИТ', '#9fe2ff', 1.2, 1.2);
+          this.float('field', at.x, at.y, 'ЩИТ ПУШКИ', '#9fe2ff', 1.1, 1.2);
           MOR.Sound.play('shield');
           break;
         case 'cluster':
@@ -537,7 +586,7 @@
           this.startBolts(team);
           break;
         case 'freeze':
-          for (const e of this.enemiesOf(team)) {
+          for (const e of this.enemiesOf(team).filter((x) => this.working(x))) {
             e.frozenUntil = Math.max(e.frozenUntil, this.time) + FREEZE_TIME;
             this.float('box' + e.i, 50, 45, 'ЛЁД', '#bff3ff', 1.5, 1.2);
           }
@@ -548,9 +597,9 @@
           this.float(box, 50, 45, 'ТУРБО', '#ff8f8f', 1.5, 1.2);
           break;
         case 'div':
-          for (const e of this.enemiesOf(team)) {
+          for (const e of this.enemiesOf(team).filter((x) => this.working(x))) {
             e.count = Math.max(1, Math.round(e.count / 2));
-            e.rel.val = Math.floor(e.rel.val / 2);
+            e.rel.acc = Math.floor(e.rel.acc / 2);
             e.box.pop = 1;
             this.float('box' + e.i, 50, 30, '÷2', '#9fb4ff', 1.4, 1.2);
           }
@@ -569,28 +618,64 @@
       }
     }
 
-    // Strongest enemy by territory, optionally skipping shielded ones.
-    leader(team, allowShielded) {
-      const cand = this.enemiesOf(team).filter((x) => allowShielded || !this.shielded(x.i));
+    // Strongest enemy by territory.
+    leader(team) {
+      const cand = this.enemiesOf(team);
       cand.sort((a, b) => this.counts[b.i] - this.counts[a.i]);
       return cand[0] || null;
     }
 
+    // Half Land: a straight cut through the middle of the largest enemy land; the half
+    // away from its cannon goes to the spinner. A laser sweeps along the cut.
     startHalfLand(team) {
-      const target = this.leader(team, false);
-      if (!target) { this.float('field', N / 2, N / 2, 'Цель под щитом', '#ffffff', 1, 1.2); return; }
-      const cells = this.cellsOf(target.i, team.cannon.x, team.cannon.y);
-      const take = Math.floor(cells.length / 2);
-      if (take < 1) return;
-      this.waves.push({ team: team.i, target: target.i, cells: cells.slice(0, take), i: 0,
-        per: Math.max(1, Math.ceil(take / (HALF_LAND_TIME / MOR.DT))) });
-      this.float('field', N / 2, N / 2, 'HALF LAND: −' + take + ' у ' + target.color.name, '#d7c2ff', 1.1, 1.6);
-      MOR.Sound.play('shield');
+      const target = this.leader(team);
+      if (!target) return;
+      const pts = [];
+      let mx = 0, my = 0;
+      for (let i = 0; i < N * N; i++) {
+        if (this.owner[i] !== target.i) continue;
+        const x = (i % N) + 0.5, y = ((i / N) | 0) + 0.5;
+        pts.push([i, x, y]);
+        mx += x; my += y;
+      }
+      if (pts.length < 2) return;
+      mx /= pts.length; my /= pts.length;
+      const tc = target.cannon;
+      let best = null;
+      for (let k = 0; k < 8; k++) {
+        const a = k * Math.PI / 8 + (this.rng() - 0.5) * 0.12;
+        const nx = -Math.sin(a), ny = Math.cos(a);
+        let side = (tc.x - mx) * nx + (tc.y - my) * ny;
+        if (Math.abs(side) < 1e-6) side = 1;
+        let take = 0;
+        for (const p of pts) if (((p[1] - mx) * nx + (p[2] - my) * ny) * side < 0) take++;
+        // About half the land, with the cannon well clear of the cut.
+        const score = Math.abs(take - pts.length / 2) / pts.length + (Math.abs(side) < 2.5 ? 1 : 0);
+        if (!best || score < best.score) best = { score, a, nx, ny, side };
+      }
+      const ux = Math.cos(best.a), uy = Math.sin(best.a);
+      const cut = [];
+      let lo = Infinity, hi = -Infinity;
+      for (const p of pts) {
+        if (((p[1] - mx) * best.nx + (p[2] - my) * best.ny) * best.side >= 0) continue;
+        const along = (p[1] - mx) * ux + (p[2] - my) * uy;
+        cut.push([p[0], along]);
+        if (along < lo) lo = along;
+        if (along > hi) hi = along;
+      }
+      if (!cut.length) return;
+      cut.sort((p, q) => p[1] - q[1]);
+      this.waves.push({ team: team.i, target: target.i, cells: cut.map((p) => p[0]), i: 0,
+        per: Math.max(1, Math.ceil(cut.length / (HALF_LAND_TIME / MOR.DT))) });
+      this.lasers.push({ x: mx, y: my, ux, uy, lo: lo - 1, hi: hi + 1, t: 0, dur: HALF_LAND_TIME, color: team.color.hex });
+      this.float('field', N / 2, N / 2, 'HALF LAND: ' + target.color.name + ' −' + cut.length, '#ffd0e4', 1.0, 1.6);
+      this.shake = Math.max(this.shake, 0.5);
+      MOR.Sound.play('zap');
     }
 
     startBomb(team) {
-      const target = this.leader(team, false);
-      if (!target) { this.float('field', N / 2, N / 2, 'Цель под щитом', '#ffffff', 1, 1.2); return; }
+      const target = this.leader(team);
+      if (!target) return;
       // Aim at the target's tile closest to the middle of its land.
       let sx = 0, sy = 0, n = 0;
       for (let i = 0; i < N * N; i++) if (this.owner[i] === target.i) { sx += i % N; sy += Math.floor(i / N); n++; }
@@ -604,9 +689,9 @@
       const pool = [];
       for (let i = 0; i < N * N; i++) {
         const o = this.owner[i];
-        if (o !== team.i && this.teams[o].alive && !this.shielded(o)) pool.push(i);
+        if (o !== team.i && this.teams[o].alive && !this.guarded(i)) pool.push(i);
       }
-      if (!pool.length) { this.float('field', N / 2, N / 2, 'Цель под щитом', '#ffffff', 1, 1.2); return; }
+      if (!pool.length) return;
       for (let k = 0; k < BOLTS; k++) {
         const ci = pool[this.rng.int(pool.length)];
         this.strikes.push({ kind: 'bolt', team: team.i, x: (ci % N) + 0.5, y: Math.floor(ci / N) + 0.5, t: 0, delay: 0.2 + k * 0.18, r: BOLT_R });
@@ -621,7 +706,8 @@
       this.shake = Math.max(0, this.shake - dt * 2.5);
       this.stepFx(dt);
       if (this.phase === 'intro') {
-        if (this.phaseT > 1.8) { this.phase = 'play'; this.phaseT = 0; }
+        this.stepCubeDrop();
+        if (this.phaseT > INTRO_TIME) { this.phase = 'play'; this.phaseT = 0; this.cube.drop = 1; }
         return;
       }
       if (this.phase === 'over') {
@@ -646,11 +732,8 @@
       for (const t of this.teams) {
         if (!this.working(t)) continue;
         const c = t.cannon;
-        if (this.frozen(t.i)) {
-          // Frozen: box, cannon sweep, release and cluster shells all wait.
-          if (t.rel.active) t.rel.end += dt;
-          continue;
-        }
+        // Frozen: box, cannon sweep, release and cluster shells all wait.
+        if (this.frozen(t.i)) continue;
         this.stepBox(t, dt);
         if (t.turboUntil > this.time) this.stepBox(t, dt);
         c.phase += c.speed * dt;
@@ -664,11 +747,47 @@
       }
       if (this.phase !== 'play') return;
       this.roulette.step(dt);
+      this.stepCube(dt);
       this.stepBullets(dt);
       this.stepStrikes(dt);
       this.stepWaves();
       for (const t of this.teams) if (this.counts[t.i] > t.peak) t.peak = this.counts[t.i];
       this.checkStalemate();
+    }
+
+    // The cube falls onto the middle of the field during the round intro.
+    stepCubeDrop() {
+      const c = this.cube, was = c.drop;
+      c.drop = MOR.clamp((this.phaseT - 0.4) / 0.6, 0, 1);
+      if (was < 1 && c.drop >= 1) {
+        this.shake = Math.max(this.shake, 0.5);
+        this.burst(c.x, c.y, '#c9ced9', 14, 9);
+        MOR.Sound.play('land');
+      }
+    }
+
+    stepCube(dt) {
+      const c = this.cube;
+      c.hit = Math.max(0, c.hit - dt * 4);
+      const v = Math.hypot(c.vx, c.vy);
+      if (v > CUBE_MAX_V) { c.vx *= CUBE_MAX_V / v; c.vy *= CUBE_MAX_V / v; }
+      c.x += c.vx * dt;
+      c.y += c.vy * dt;
+      c.ang += (c.vx + c.vy) * dt * 0.35;
+      const f = Math.exp(-CUBE_DRAG * dt);
+      c.vx *= f; c.vy *= f;
+      const lo = CUBE_R, hi = N - CUBE_R;
+      if (c.x < lo) { c.x = lo; c.vx = Math.abs(c.vx) * 0.5; } else if (c.x > hi) { c.x = hi; c.vx = -Math.abs(c.vx) * 0.5; }
+      if (c.y < lo) { c.y = lo; c.vy = Math.abs(c.vy) * 0.5; } else if (c.y > hi) { c.y = hi; c.vy = -Math.abs(c.vy) * 0.5; }
+      // Keep it off the cannons.
+      for (const p of PIVOTS) {
+        const dx = c.x - p[0], dy = c.y - p[1], d = Math.hypot(dx, dy), min = CUBE_R + 2.6;
+        if (d < min && d > 1e-6) {
+          c.x = p[0] + dx / d * min; c.y = p[1] + dy / d * min;
+          const vn = c.vx * dx / d + c.vy * dy / d;
+          if (vn < 0) { c.vx -= 1.5 * vn * dx / d; c.vy -= 1.5 * vn * dy / d; }
+        }
+      }
     }
 
     // If every surviving colour has lost its cannon and nothing is in flight,
@@ -699,6 +818,10 @@
         this.bolts[i].life -= dt;
         if (this.bolts[i].life <= 0) this.bolts.splice(i, 1);
       }
+      for (let i = this.lasers.length - 1; i >= 0; i--) {
+        this.lasers[i].t += dt;
+        if (this.lasers[i].t > this.lasers[i].dur + 0.5) this.lasers.splice(i, 1);
+      }
       for (const t of this.teams) {
         t.cannon.hit = Math.max(0, t.cannon.hit - dt * 5);
         t.box.pop = Math.max(0, t.box.pop - dt * 4);
@@ -722,11 +845,12 @@
       return out;
     }
 
-    // Blocked slots become solid blocks: [x0, x1, top].
+    // Blocked slots become solid blocks: [x0, x1, top]. The spinner closes while its
+    // drum spins; all three close while the cannon releases.
     blocks(team) {
       const out = [];
-      if (team.spinBlocked) out.push([X_A, X_B, POST_TOP]);
-      if (team.rel.active) out.push([X_B, 100, SLOT_TOP]);
+      if (team.rel.active) out.push([0, X_A, SLOT_TOP], [X_B, 100, SLOT_TOP]);
+      if (team.spinBlocked || team.rel.active) out.push([X_A, X_B, POST_TOP]);
       return out;
     }
 
@@ -771,6 +895,7 @@
           m.vy = SPAWN_VY;
           m.flash = 1;
           m.still = 0;
+          m.air = 0;
           continue;
         }
         // A marble wedged between two pegs climbs out over one of them; one riding up
@@ -780,8 +905,11 @@
         m.ride = riding ? (m.ride || 0) + dt : 0;
         if (m.popT === 0 && (m.cradle || m.ride > 0.12)) {
           if (m.cradle) {
-            m.vx = (this.rng() < 0.5 ? -1 : 1) * this.rng.range(40, 50);
-            m.vy = -45;
+            // Wedged in the pair over the spinner, a marble hops clear over one of the
+            // pegs; a weaker hop would land it in the same pair again and again.
+            const mid = Math.abs(m.x - (X_A + X_B) / 2) < 3;
+            m.vx = (this.rng() < 0.5 ? -1 : 1) * (mid ? this.rng.range(50, 60) : this.rng.range(40, 50));
+            m.vy = mid ? -72 : -45;
           } else {
             const dir = m.x < m.touch.x ? -1 : m.x > m.touch.x ? 1 : (this.rng() < 0.5 ? -1 : 1);
             m.vx = dir * this.rng.range(35, 50);
@@ -792,14 +920,18 @@
         }
         m.touch = null;
         m.cradle = false;
+        // Safety net: a marble that has not reached a slot for 10 s gets shoved sideways.
+        m.air = team.rel.active ? 0 : (m.air || 0) + dt;
+        if (m.air > 10) { m.vx = (m.x < 50 ? -1 : 1) * 70; m.vy = 10; m.air = 6; }
         const sp = Math.abs(m.vx) + Math.abs(m.vy);
-        m.still = sp < 3 ? m.still + dt : 0;
+        // Resting on the closed slots during a release is fine; elsewhere a still marble gets a kick.
+        m.still = sp < 3 && !team.rel.active ? m.still + dt : 0;
         if (m.still > 1.0) { m.vx = this.rng.range(-40, 40); m.vy = -30; m.still = 0; }
       }
     }
 
     stepBullets(dt) {
-      const owner = this.owner, teams = this.teams;
+      const owner = this.owner, teams = this.teams, cube = this.cube;
       const pierce = this.power() > 1;
       const list = this.bullets;
       for (let i = list.length - 1; i >= 0; i--) {
@@ -814,22 +946,40 @@
             let nx = px + b.vx * dt / steps, ny = py + b.vy * dt / steps;
             if (nx < 0) { nx = -nx; b.vx = -b.vx; } else if (nx > N) { nx = 2 * N - nx; b.vx = -b.vx; }
             if (ny < 0) { ny = -ny; b.vy = -b.vy; } else if (ny > N) { ny = 2 * N - ny; b.vy = -b.vy; }
+            // Bounce off the neutral cube and shove it.
+            const qx = nx - cube.x, qy = ny - cube.y, q2 = qx * qx + qy * qy;
+            if (q2 < CUBE_R * CUBE_R) {
+              const q = Math.sqrt(q2) || 1e-6, ux = qx / q, uy = qy / q;
+              const vn = b.vx * ux + b.vy * uy;
+              if (vn < 0) {
+                b.vx -= 2 * vn * ux; b.vy -= 2 * vn * uy;
+                const push = CUBE_PUSH * Math.min(8, Math.sqrt(b.hp));
+                cube.vx -= ux * push; cube.vy -= uy * push;
+                cube.hit = 1;
+                cube.paint = b.t;
+              }
+              b.x = cube.x + ux * CUBE_R; b.y = cube.y + uy * CUBE_R;
+              continue;
+            }
             const cx = Math.min(N - 1, nx | 0), cy = Math.min(N - 1, ny | 0);
             const ci = cy * N + cx;
             const o = owner[ci];
             if (o === b.t) { b.x = nx; b.y = ny; continue; }
-            if (teams[o].shieldUntil > this.time) {
+            if (this.guarded(ci)) {
+              // The shield bubble around a cannon swallows enemy balls.
               this.burst(nx, ny, '#bfefff', 3, 6);
               dead = true;
               break;
             }
             this.setCell(ci, b.t);
             if (b.kind === 1) {
-              // Cluster shell bursts into many small balls.
+              // Cluster shell bursts into many small balls. They start from just before
+              // the tile it hit, so a burst on a cannon's tile does not hit it 36 times at once.
+              const pw = this.power();
               for (let s = 0; s < CLUSTER_N; s++) {
                 const a = (s / CLUSTER_N) * Math.PI * 2 + this.rng() * 0.15;
                 const sp = BULLET_SPEED * (0.75 + this.rng() * 0.4);
-                this.newBullets.push({ x: cx + 0.5, y: cy + 0.5, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: b.t, hp: 1, kind: 0, life: 0 });
+                this.newBullets.push({ x: px, y: py, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: b.t, hp: pw, kind: 0, life: 0 });
               }
               this.burst(cx + 0.5, cy + 0.5, '#ffd0a0', 18, 12);
               this.shake = Math.max(this.shake, 0.4);
@@ -864,7 +1014,7 @@
           const dx = cx + 0.5 - x, dy = cy + 0.5 - y;
           if (dx * dx + dy * dy > R * R) continue;
           const i = cy * N + cx, o = this.owner[i];
-          if (o === t || this.shielded(o)) continue;
+          if (o === t) continue;
           if (this.setCell(i, t) && this.rng() < 0.3) this.burst(cx + 0.5, cy + 0.5, this.teams[t].color.hex, 1, 8);
           if (this.phase !== 'play') return;
         }
@@ -898,7 +1048,7 @@
         if (!this.teams[w.team].alive || this.phase !== 'play') { this.waves.splice(i, 1); continue; }
         for (let n = 0; n < w.per && w.i < w.cells.length; n++) {
           const ci = w.cells[w.i++];
-          if (this.owner[ci] !== w.target || (!w.force && this.shielded(w.target))) continue;
+          if (this.owner[ci] !== w.target) continue;
           this.setCell(ci, w.team);
           if (this.phase !== 'play') break;
         }
@@ -958,7 +1108,7 @@
       for (let i = 0; i < 4; i++) this.renderBox(ctx, this.teams[i], L.boxes[i]);
       this.renderBar(ctx, L.bar, L.barH);
       this.renderFloaters(ctx, L, cs);
-      if (this.phase === 'play') this.roulette.render(ctx, F.x + F.s / 2, F.y + F.s / 2, F.s * 0.3);
+      if (this.phase === 'play') this.roulette.render(ctx, F);
       this.renderBanner(ctx, F);
     }
 
@@ -984,41 +1134,27 @@
         ctx.stroke();
       }
 
-      // Shield overlay.
-      const anyShield = this.teams.some((t) => t.alive && this.shielded(t.i));
-      if (anyShield) {
-        const d = this.shieldImg.data;
-        const pulse = 0.5 + 0.5 * Math.sin(this.clock * 6);
-        for (let i = 0; i < N * N; i++) {
-          const o = i * 4;
-          const sh = this.shielded(this.owner[i]);
-          d[o] = 200; d[o + 1] = 240; d[o + 2] = 255;
-          d[o + 3] = sh ? 70 + 60 * pulse : 0;
-        }
-        this.shieldCtx.putImageData(this.shieldImg, 0, 0);
-        ctx.drawImage(this.shieldCanvas, F.x, F.y, F.s, F.s);
-      }
-
       ctx.save();
       ctx.beginPath();
       ctx.rect(F.x, F.y, F.s, F.s);
       ctx.clip();
-      // Bullets, batched per colour.
+      this.renderCube(ctx, F, cs);
+      // Balls look like pale comets (head forward, tail back), batched per colour.
       for (const t of this.teams) {
-        ctx.fillStyle = t.color.hex;
-        ctx.strokeStyle = t.color.edge;
-        ctx.lineWidth = Math.max(1, cs * 0.12);
+        ctx.fillStyle = t.pale;
         ctx.beginPath();
         let any = false;
         for (const b of this.bullets) {
           if (b.t !== t.i || b.kind !== 0) continue;
-          const r = Math.min(1.1, 0.27 + 0.08 * Math.log2(Math.max(1, b.hp)));
+          const r = Math.min(1.1, 0.3 + 0.08 * Math.log2(Math.max(1, b.hp))) * cs;
           const x = F.x + b.x * cs, y = F.y + b.y * cs;
-          ctx.moveTo(x + r * cs, y);
-          ctx.arc(x, y, r * cs, 0, Math.PI * 2);
+          const a = Math.atan2(b.vy, b.vx), ux = Math.cos(a), uy = Math.sin(a);
+          ctx.moveTo(x - ux * r * 3.2, y - uy * r * 3.2);
+          ctx.arc(x, y, r, a + Math.PI / 2 + 0.25, a - Math.PI / 2 - 0.25, true);
+          ctx.closePath();
           any = true;
         }
-        if (any) { ctx.fill(); ctx.stroke(); }
+        if (any) ctx.fill();
       }
       // Cluster shells and cannonballs.
       for (const b of this.bullets) {
@@ -1049,14 +1185,89 @@
       }
       ctx.globalAlpha = 1;
       this.renderStrikes(ctx, F, cs);
+      this.renderLasers(ctx, F, cs);
       ctx.restore();
 
+      // Shield bubbles stay inside the field.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(F.x, F.y, F.s, F.s);
+      ctx.clip();
+      for (const t of this.teams) this.drawShield(ctx, t, F, cs);
+      ctx.restore();
       for (const t of this.teams) this.drawCannon(ctx, t, F, cs);
 
       // Frame.
       ctx.strokeStyle = 'rgba(255,255,255,0.18)';
       ctx.lineWidth = 2;
       ctx.strokeRect(F.x - 1, F.y - 1, F.s + 2, F.s + 2);
+    }
+
+    renderCube(ctx, F, cs) {
+      const c = this.cube;
+      if (c.drop <= 0) return;
+      const k = MOR.easeInOut(c.drop);
+      const x = F.x + c.x * cs, y = F.y + (c.y - (1 - k) * 12) * cs;
+      const s = CUBE_R * 1.05 * cs * (1 + (1 - k) * 0.8);
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,' + (0.15 + 0.25 * k) + ')';
+      ctx.beginPath();
+      ctx.ellipse(F.x + c.x * cs + cs * 0.25, F.y + c.y * cs + cs * 0.35, s * (0.6 + 0.4 * k), s * (0.6 + 0.4 * k), 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.translate(x, y);
+      ctx.rotate(c.ang);
+      // A grey cube seen from above: lighter top face, darker bevel, a stripe of
+      // the last colour that hit it.
+      ctx.fillStyle = '#4b505e';
+      MOR.roundRect(ctx, -s, -s, s * 2, s * 2, s * 0.25);
+      ctx.fill();
+      if (c.paint >= 0) {
+        ctx.strokeStyle = this.teams[c.paint].color.hex;
+        ctx.lineWidth = s * 0.22;
+        MOR.roundRect(ctx, -s * 0.88, -s * 0.88, s * 1.76, s * 1.76, s * 0.2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = c.hit > 0 ? MOR.mix('#8a90a0', '#ffffff', c.hit * 0.5) : '#8a90a0';
+      MOR.roundRect(ctx, -s * 0.68, -s * 0.68, s * 1.36, s * 1.36, s * 0.16);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.22)';
+      ctx.fillRect(-s * 0.6, -s * 0.6, s * 1.2, s * 0.3);
+      ctx.restore();
+    }
+
+    renderLasers(ctx, F, cs) {
+      for (const l of this.lasers) {
+        const k = Math.min(1, l.t / l.dur);
+        const fade = l.t > l.dur ? 1 - (l.t - l.dur) / 0.5 : 1;
+        const sx = F.x + (l.x + l.ux * l.lo) * cs, sy = F.y + (l.y + l.uy * l.lo) * cs;
+        const head = l.lo + (l.hi - l.lo) * k;
+        const hx = F.x + (l.x + l.ux * head) * cs, hy = F.y + (l.y + l.uy * head) * cs;
+        const ex = F.x + (l.x + l.ux * l.hi) * cs, ey = F.y + (l.y + l.uy * l.hi) * cs;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, fade);
+        ctx.lineCap = 'round';
+        // Guide line where the cut will go.
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.lineWidth = Math.max(1, cs * 0.12);
+        ctx.setLineDash([cs * 0.6, cs * 0.4]);
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+        ctx.setLineDash([]);
+        // The beam itself.
+        ctx.shadowColor = l.color;
+        ctx.shadowBlur = cs * 1.2;
+        ctx.strokeStyle = l.color;
+        ctx.lineWidth = Math.max(2, cs * 0.6);
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(hx, hy); ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = Math.max(1, cs * 0.2);
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(hx, hy); ctx.stroke();
+        if (k < 1) {
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath(); ctx.arc(hx, hy, cs * 0.55, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+      }
     }
 
     renderStrikes(ctx, F, cs) {
@@ -1099,6 +1310,23 @@
         ctx.shadowBlur = 0;
         ctx.globalAlpha = 1;
       }
+    }
+
+    // Shield bubble around the cannon (only the cannon is protected), with time left.
+    drawShield(ctx, t, F, cs) {
+      if (!t.alive || !this.shielded(t.i)) return;
+      const x = F.x + t.cannon.x * cs, y = F.y + t.cannon.y * cs;
+      const k = (t.shieldUntil - this.time) / SHIELD_TIME;
+      const SR = SHIELD_R * cs, pulse = 0.5 + 0.5 * Math.sin(this.clock * 5);
+      const g = ctx.createRadialGradient(x, y, SR * 0.3, x, y, SR);
+      g.addColorStop(0, 'rgba(160,235,255,0.05)');
+      g.addColorStop(0.8, 'rgba(160,235,255,' + (0.18 + 0.08 * pulse) + ')');
+      g.addColorStop(1, 'rgba(210,248,255,0.55)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, SR, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(225,250,255,0.9)';
+      ctx.lineWidth = Math.max(1.5, cs * 0.18);
+      ctx.beginPath(); ctx.arc(x, y, SR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, k)); ctx.stroke();
     }
 
     drawCannon(ctx, t, F, cs) {
@@ -1156,13 +1384,6 @@
         ctx.moveTo(R * 0.5, -R * 0.5); ctx.lineTo(-R * 0.5, R * 0.5);
         ctx.stroke();
       }
-      // Shield ring (time left) and cluster shells left.
-      if (t.alive && this.shielded(t.i)) {
-        const k = (t.shieldUntil - this.time) / SHIELD_TIME;
-        ctx.strokeStyle = '#bfefff';
-        ctx.lineWidth = Math.max(2, cs * 0.28);
-        ctx.beginPath(); ctx.arc(0, 0, R * 1.45, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, k)); ctx.stroke();
-      }
       if (working && c.cluster > 0) {
         ctx.fillStyle = '#ffffff';
         ctx.font = Math.round(cs * 1.1) + 'px ' + MOR.FONT;
@@ -1176,8 +1397,9 @@
     // Name and seconds left of the most relevant timed effect on a team.
     status(t) {
       if (this.frozen(t.i)) return ['ЛЁД', t.frozenUntil, '#9fe8ff'];
+      if (this.shielded(t.i)) return ['ЩИТ', t.shieldUntil, '#9fe2ff'];
       if (t.turboUntil > this.time) return ['ТУРБО', t.turboUntil, '#ff8f8f'];
-      if (t.twinUntil > this.time) return ['2×', t.twinUntil, '#ff9fbf'];
+      if (t.twinUntil > this.time) return ['ДВОЙНАЯ', t.twinUntil, '#ff9fbf'];
       return null;
     }
 
@@ -1194,62 +1416,65 @@
       ctx.save();
       ctx.clip();
 
-      // Slots.
+      // Slots: coral x2 (pink x4 with seconds left), pale yellow spinner, green R.
       const x4 = t.x4Until > this.time;
-      const slotCol = [x4 ? '#b8860b' : '#1f8a4c', '#c79a00', '#c0392b'];
+      const slotCol = [x4 ? SLOT_X4 : SLOT_X2, SLOT_SPIN, SLOT_REL];
       const xs = [0, X_A, X_B, 100];
-      const blocked = [false, t.spinBlocked, t.rel.active];
+      const rel = t.rel.active;
+      const blocked = [rel, rel || t.spinBlocked, rel];
       const tops = [SLOT_TOP, POST_TOP, SLOT_TOP];
       for (let k = 0; k < 3; k++) {
-        ctx.fillStyle = slotCol[k];
-        ctx.fillRect(xs[k], tops[k], xs[k + 1] - xs[k], 100 - tops[k]);
+        const x0 = xs[k], w = xs[k + 1] - xs[k], top = tops[k], bh = 100 - top;
+        if (!blocked[k]) {
+          ctx.fillStyle = slotCol[k];
+          ctx.fillRect(x0, top, w, bh);
+          ctx.fillStyle = 'rgba(255,255,255,0.22)';
+          ctx.fillRect(x0, top, w, 1.2);
+        } else {
+          // A closed slot is a solid dark block.
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x0, top, w, bh);
+          ctx.clip();
+          ctx.fillStyle = '#1b1e27';
+          ctx.fillRect(x0, top, w, bh);
+          ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          for (let d = -bh; d < w; d += 4) { ctx.moveTo(x0 + d, 100); ctx.lineTo(x0 + d + bh, top); }
+          ctx.stroke();
+          ctx.restore();
+          ctx.fillStyle = 'rgba(255,255,255,0.14)';
+          ctx.fillRect(x0, top, w, 0.9);
+        }
         if (box.flash[k] > 0) {
           ctx.fillStyle = 'rgba(255,255,255,' + box.flash[k] * 0.6 + ')';
-          ctx.fillRect(xs[k], tops[k], xs[k + 1] - xs[k], 100 - tops[k]);
+          ctx.fillRect(x0, top, w, bh);
         }
       }
-      ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      ctx.fillStyle = rel ? 'rgba(255,255,255,0.75)' : '#ffffff';
       ctx.font = '9px ' + MOR.FONT;
-      ctx.fillText(x4 ? 'x4' : 'x2', X_A / 2, 92);
       if (x4) {
-        const k = (t.x4Until - this.time) / X4_TIME;
-        ctx.fillStyle = 'rgba(255,255,255,0.8)';
-        ctx.fillRect(3, 97.5, (X_A - 6) * Math.min(1, k), 1.5);
+        ctx.fillStyle = rel ? '#ff8fc8' : '#fff36b';
+        ctx.fillText('×4', X_A / 2 - 5, 91.5);
+        ctx.font = '5.5px ' + MOR.FONT;
+        ctx.fillStyle = rel ? 'rgba(255,255,255,0.75)' : '#ffffff';
+        ctx.fillText(String(Math.ceil(t.x4Until - this.time)), X_A / 2 + 8, 92);
+      } else {
+        ctx.fillText('×2', X_A / 2, 91.5);
       }
-      ctx.font = '5.6px ' + MOR.FONT;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText('ВЫПУСК', (X_B + 100) / 2, 92);
-      this.drawMiniWheel(ctx, (X_A + X_B) / 2, 92, 4.6, t.spinBlocked ? this.clock * 8 : 0);
-
-      // Blocked slots turn into solid dark blocks.
-      for (let k = 1; k < 3; k++) {
-        if (!blocked[k]) continue;
-        const x0 = xs[k], w = xs[k + 1] - xs[k], top = tops[k], bh = 100 - top;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(x0, top, w, bh);
-        ctx.clip();
-        ctx.fillStyle = 'rgba(8,10,16,0.86)';
-        ctx.fillRect(x0, top, w, bh);
-        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        for (let d = -bh; d < w; d += 4) { ctx.moveTo(x0 + d, 100); ctx.lineTo(x0 + d + bh, top); }
-        ctx.stroke();
-        ctx.restore();
-        ctx.fillStyle = 'rgba(255,255,255,0.18)';
-        ctx.fillRect(x0, top, w, 0.9);
-        if (k === 2) {
-          // Release progress: the block empties as the cannon fires.
-          const left = Math.max(0, Math.min(1, (t.rel.end - this.time) / 3));
-          ctx.fillStyle = 'rgba(192,57,43,0.55)';
-          ctx.fillRect(x0 + 3, 96, (w - 6) * left, 1.6);
-        } else {
-          this.drawMiniWheel(ctx, x0 + w / 2, 92, 4.6, this.clock * 8, 0.35);
-        }
+      ctx.font = '9px ' + MOR.FONT;
+      ctx.fillStyle = rel ? 'rgba(255,255,255,0.75)' : '#ffffff';
+      ctx.fillText('R', (X_B + 100) / 2, 91.5);
+      if (rel) {
+        // Release progress under the R: the bar empties as the cannon fires.
+        const left = MOR.clamp(t.count / Math.max(1, t.rel.total), 0, 1);
+        ctx.fillStyle = SLOT_REL;
+        ctx.fillRect(X_B + 3, 96.5, (100 - X_B - 6) * left, 1.6);
       }
+      this.drawMiniDrum(ctx, (X_A + X_B) / 2, 91, t.spinBlocked ? this.clock * 9 : 0, blocked[1] ? 0.45 : 1);
 
       // Divider posts around the spinner slot.
       ctx.strokeStyle = '#e9ecf7';
@@ -1274,19 +1499,25 @@
           ctx.beginPath(); ctx.arc(m.x, m.y, m.r + 3 * m.flash, 0, Math.PI * 2); ctx.fill();
         }
         MOR.drawMarble(ctx, m.x, m.y, m.r, m.gold ? gold : t.color);
+        if (m.gold) {
+          // White ring so the golden marble stands out even in a yellow box.
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 0.9;
+          ctx.beginPath(); ctx.arc(m.x, m.y, m.r + 0.9, 0, Math.PI * 2); ctx.stroke();
+        }
       }
 
       // Header with the ball count.
       ctx.fillStyle = 'rgba(5,7,13,0.55)';
       ctx.fillRect(0, 0, 100, CEIL);
-      const shown = t.rel.active ? Math.max(1, t.count + t.rel.val) : t.count;
+      const shown = t.rel.active ? Math.max(1, Math.ceil(t.count)) : t.count;
       const sc = 1 + box.pop * 0.25;
       ctx.save();
       ctx.translate(50, CEIL / 2 + 0.6);
       ctx.scale(sc, sc);
       ctx.font = '9.5px ' + MOR.FONT;
       ctx.fillStyle = t.rel.active ? '#ffcf3a' : '#ffffff';
-      ctx.fillText(MOR.fmt(shown), 0, 0);
+      ctx.fillText(MOR.fmt(shown), 0, 0, 56);
       ctx.restore();
       // Marbles in play (dots) on the left, active timed effect on the right.
       box.marbles.forEach((m, k) => {
@@ -1313,13 +1544,32 @@
       ctx.strokeStyle = turbo && Math.floor(this.clock * 6) % 2 === 0 ? '#ffffff' : t.color.hex;
       ctx.stroke();
 
-      if (!this.working(t)) {
+      if (!t.alive) {
+        // Eliminated: a big diagonal stamp over the box, as in the video.
+        MOR.roundRect(ctx, 0, 0, 100, 100, 5);
+        ctx.fillStyle = 'rgba(5,7,13,0.45)';
+        ctx.fill();
+        const k = MOR.clamp((this.clock - t.lostAt) / 0.3, 0, 1);
+        ctx.save();
+        ctx.translate(50, 54);
+        ctx.rotate(-0.5);
+        ctx.scale(2.2 - 1.2 * MOR.easeOutCubic(k), 2.2 - 1.2 * MOR.easeOutCubic(k));
+        ctx.globalAlpha = k;
+        ctx.font = '21px ' + MOR.FONT;
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 3.5;
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.strokeText('ВЫБЫЛ', 0, 0, 96);
+        ctx.fillStyle = '#0b0d14';
+        ctx.fillText('ВЫБЫЛ', 0, 0, 96);
+        ctx.restore();
+      } else if (!this.working(t)) {
         MOR.roundRect(ctx, 0, 0, 100, 100, 5);
         ctx.fillStyle = 'rgba(5,7,13,0.72)';
         ctx.fill();
         ctx.fillStyle = '#ffffff';
-        ctx.font = (t.alive ? '7.5px ' : '10px ') + MOR.FONT;
-        ctx.fillText(t.alive ? 'ПУШКА РАЗРУШЕНА' : 'ВЫБЫЛ', 50, 46);
+        ctx.font = '7.5px ' + MOR.FONT;
+        ctx.fillText('ПУШКА РАЗРУШЕНА', 50, 46);
         ctx.font = '6px ' + MOR.FONT;
         ctx.fillStyle = t.color.hex;
         ctx.fillText(t.color.name, 50, 58);
@@ -1327,19 +1577,28 @@
       ctx.restore();
     }
 
-    drawMiniWheel(ctx, x, y, r, ang, alpha) {
+    // Small drum icon in the spinner slot; it rolls while the big drum spins.
+    drawMiniDrum(ctx, x, y, roll, alpha) {
       const items = this.roulette.items, n = items.length;
+      const w = 9, h = 8, bh = h / 3;
       ctx.save();
-      if (alpha !== undefined) ctx.globalAlpha = alpha;
-      for (let i = 0; i < n; i++) {
-        const a0 = ang + i * Math.PI * 2 / n;
-        ctx.fillStyle = BONUSES[items[i]].color;
-        ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r, a0, a0 + Math.PI * 2 / n); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.rect(x - w / 2, y - h / 2, w, h);
+      ctx.clip();
+      const off = (roll % 1) * bh;
+      const first = Math.floor(roll);
+      for (let k = -1; k < 4; k++) {
+        ctx.fillStyle = BONUSES[items[(((first + k) % n) + n) % n]].color;
+        ctx.fillRect(x - w / 2, y - h / 2 + k * bh - off, w, bh + 0.2);
       }
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 0.6;
-      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillRect(x - w / 2, y - h / 2, w, 1.4);
+      ctx.fillRect(x - w / 2, y + h / 2 - 1.4, w, 1.4);
       ctx.restore();
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.lineWidth = 0.6;
+      ctx.strokeRect(x - w / 2, y - h / 2, w, h);
     }
 
     renderBar(ctx, B, h) {
@@ -1398,16 +1657,41 @@
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       if (this.phase === 'intro') {
+        // Round card: title, the four colours and today's drum (as "Today's Roulette").
         const k = Math.min(1, this.phaseT / 0.3);
-        ctx.globalAlpha = k * (this.phaseT > 1.5 ? Math.max(0, (1.8 - this.phaseT) / 0.3) : 1);
-        ctx.fillStyle = 'rgba(5,7,13,0.75)';
-        ctx.fillRect(F.x, cy - F.s * 0.13, F.s, F.s * 0.26);
+        const out = INTRO_TIME - 0.35;
+        ctx.globalAlpha = k * (this.phaseT > out ? Math.max(0, (INTRO_TIME - this.phaseT) / 0.35) : 1);
+        const hh = F.s * 0.42;
+        ctx.fillStyle = 'rgba(5,7,13,0.8)';
+        ctx.fillRect(F.x, cy - hh / 2, F.s, hh);
         ctx.fillStyle = '#ffcf3a';
-        ctx.font = Math.round(F.s * 0.09) + 'px ' + MOR.FONT;
-        ctx.fillText(this.title, cx, cy - F.s * 0.035);
-        ctx.font = Math.round(F.s * 0.04) + 'px ' + MOR.FONT;
+        ctx.font = Math.round(F.s * 0.085) + 'px ' + MOR.FONT;
+        ctx.fillText(this.title, cx, cy - hh * 0.32);
+        ctx.font = Math.round(F.s * 0.036) + 'px ' + MOR.FONT;
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(this.teams.map((t) => t.color.name).join(' · '), cx, cy + F.s * 0.065);
+        ctx.fillText(this.teams.map((t) => t.color.name).join(' · '), cx, cy - hh * 0.12, F.s * 0.94);
+        ctx.font = Math.round(F.s * 0.034) + 'px ' + MOR.FONT;
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.fillText('Рулетка турнира', cx, cy + hh * 0.06);
+        // Bonus chips in two rows (3 + 2).
+        const items = this.roulette.items;
+        const fs = Math.round(F.s * 0.034);
+        ctx.font = fs + 'px ' + MOR.FONT;
+        const rows = [items.slice(0, Math.ceil(items.length / 2)), items.slice(Math.ceil(items.length / 2))];
+        rows.forEach((row, r) => {
+          const ws = row.map((id) => ctx.measureText(BONUSES[id].label).width + fs * 1.2);
+          const gap = fs * 0.5;
+          let x = cx - (ws.reduce((a, b) => a + b, 0) + gap * (row.length - 1)) / 2;
+          const y = cy + hh * 0.2 + r * fs * 2.0;
+          row.forEach((id, j) => {
+            ctx.fillStyle = BONUSES[id].color;
+            MOR.roundRect(ctx, x, y - fs * 0.8, ws[j], fs * 1.6, fs * 0.45);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(BONUSES[id].label, x + ws[j] / 2, y + 1);
+            x += ws[j] + gap;
+          });
+        });
       } else if (this.phase === 'over') {
         const t = this.teams[this.winner];
         const k = Math.min(1, this.phaseT / 0.4);

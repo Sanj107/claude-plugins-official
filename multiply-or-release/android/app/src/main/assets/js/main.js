@@ -300,11 +300,17 @@
     }
 
     // ------------------------------------------------------------ flow
-    startDemo() {
-      const rng = MOR.makeRng(this.seed ^ 0x9e3779b9);
+    // Background battle behind the menu; every demo is a different match.
+    newDemoBattle() {
+      this.demoN = (this.demoN || 0) + 1;
+      const rng = MOR.makeRng((this.seed ^ 0x9e3779b9) + this.demoN * 7919);
       const cols = rng.shuffle(MOR.COLORS.slice()).slice(0, 4);
       this.scene = new MOR.Battle(this, cols, { title: 'ДЕМО' }, rng);
       this.scene.demo = true;
+    }
+
+    startDemo() {
+      this.newDemoBattle();
       this.stage = 'menu';
       this.paused = false;
       this.show('menu', true);
@@ -341,6 +347,7 @@
       this.show('history', false);
       this.scene = new MOR.DrawScene(this, colors, this.rng);
       $('stage').textContent = 'Жеребьёвка';
+      $('timer').textContent = '';
       try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) { /* not supported */ }
       this.syncHud();
     }
@@ -352,8 +359,8 @@
 
     onBattleEnd(res) {
       if (this.scene && this.scene.demo) {
-        // Attract mode: just start another demo battle.
-        this.startDemo();
+        // Attract mode: swap in another demo battle, leaving any open overlay alone.
+        this.newDemoBattle();
         return;
       }
       if (res.isFinal) {
@@ -494,6 +501,8 @@
       tree.appendChild(bracketSvg(this.T.groups.map((g) => g.map((c) => c.id)), rows.map((r) => r.color.id)));
       this.applyView();
       this.show('results', true);
+      $('results').scrollTop = 0;
+      $('results').querySelectorAll('.card').forEach((c) => { c.scrollTop = 0; });
       $('stage').textContent = 'Итоги турнира';
       $('timer').textContent = '';
       MOR.Sound.play('win');
@@ -501,6 +510,7 @@
         this.T.saved = true;
         const list = loadHistory();
         list.unshift({
+          n: list.reduce((m, e, i) => Math.max(m, e.n || list.length - i), 0) + 1, // running number survives the cap
           ts: Date.now(),
           seed: this.T.seed,
           bonuses: this.T.bonuses,
@@ -576,7 +586,7 @@
         const card = el('article', 'entry');
         const head = el('header');
         head.appendChild(el('span', 'date', fmtDate(e.ts)));
-        head.appendChild(el('span', 'num', '№' + (list.length - idx)));
+        head.appendChild(el('span', 'num', '№' + (e.n || list.length - idx)));
         card.appendChild(head);
         if (Array.isArray(e.bonuses) && e.bonuses.length) {
           const bon = el('div', 'entry-bonuses');
@@ -660,6 +670,7 @@
     onBack() {
       if (!$('history').hidden) { this.closeHistory(); return true; }
       if (this.stage === 'menu') return false;
+      if (this.stage === 'results') { this.toMenu(); return true; }
       if (this.paused) this.togglePause(false); else this.togglePause(true);
       return true;
     }
