@@ -1,6 +1,6 @@
 /* Battle scene: 4 colours fight for a square tile field.
-   Each colour has a corner cannon and a side box. Marbles fall through rising pegs
-   into the x2 / spinner / release slots at the bottom of the box. */
+   Each colour has a corner cannon and a side box. Three marbles fall through a sparse
+   rising peg grid into the x2 / spinner / release slots at the bottom of the box. */
 'use strict';
 (function () {
   const MOR = window.MOR, P = MOR.Phys;
@@ -10,42 +10,61 @@
   const BULLET_SPEED = 15;         // tiles per second
   const SPAWN_RATE = 60;           // max bullets per second per cannon (larger counts -> heavier bullets)
   const SWEEP = 0.78;              // cannon sweep, radians either side of the diagonal
-  const CLUSTER_SHELLS = 3, CLUSTER_N = 36;
-  const PLUS_BALLS = 200, X4_TIME = 45, SHIELD_TIME = 20;
-  const HALF_LAND_TIME = 1.0, FIST_TIME = 1.5, FIST_R = 2.2, COLLAPSE_TIME = 3.0;
   const CANNON_HP = 30;            // enemy captures of the tile under a cannon it can survive
-  const MAX_MARBLES = 3;           // every elimination gives each survivor one more marble
+  const COLLAPSE_TIME = 3.0;       // a wrecked colour's land flows to the wrecker over this time
   const OVERTIME_AT = 120, OVERTIME_STEP = 40; // after 2:00 every shot hits x2, x4, x8...
   const INSET = 1.6;               // cannon pivot sits this far inside its corner
   const PIVOTS = [[INSET, INSET], [N - INSET, INSET], [INSET, N - INSET], [N - INSET, N - INSET]];
   const BASE_ANG = [Math.PI / 4, Math.PI * 3 / 4, -Math.PI / 4, -Math.PI * 3 / 4];
 
   // ---- Side box (local units: 100 x 100)
-  const CEIL = 13, PEG_TOP = 15, PEG_BOT = 75, PEG_FADE = 9, PEG_R = 2.0, PEG_ROWS = 6, PEG_SP = 10, PEG_SPEED = 7;
-  const SLOT_TOP = 82, TRIGGER_Y = 91, X_A = 300 / 7, X_B = 400 / 7;
-  const MARBLE_R = 2.9, GRAV = 190;
-  const PEG_X_EVEN = [1, 3, 5, 7, 9, 11].map((k) => k * 100 / 12);
-  const PEG_X_ODD = [1, 2, 3, 4, 5].map((k) => k * 100 / 6);
-  // Blocked slots get a lid; both lids lie on one line sloping down toward x2
-  // so a marble always rolls off into an open slot.
-  const lidY = (x) => SLOT_TOP - (x - X_A) * (7 / (100 - X_A));
+  // The two dividers around the narrow spinner slot rise above the other slots as
+  // posts, so a marble can only drop into the spinner from above, never roll in.
+  const CEIL = 13, SLOT_TOP = 82, POST_TOP = 75, POST_R = 1.2, TRIGGER_Y = 91, X_A = 300 / 7, X_B = 400 / 7;
+  const MARBLES = 3, MARBLE_R = 2.9, GRAV = 240, SPAWN_VY = 45;
+  // Sparse peg grid rising from bottom to top. Every row has a peg above each slot
+  // divider, so pegs grow straight out of the dividers and guard the narrow spinner slot.
+  const PEG_SPEED = 7, PEG_TOP = CEIL + 8, PEG_BOT = POST_TOP, PEG_FADE = 6;
+  // Each peg: [x, radius]. Every other row grows a pair of pegs out of the spinner posts;
+  // the gap between them is narrower than a marble, so the pair works as a roof over
+  // the spinner and that slot is only reachable between pairs.
+  const DIV_R = 4.6, MID_R = 3.4;
+  const PEG_ROW_A = [[X_A / 4, MID_R], [X_A, DIV_R], [X_B, DIV_R], [100 - X_A / 4, MID_R]];
+  const PEG_ROW_B = [[X_A * 0.6, MID_R], [100 - X_A * 0.6, MID_R]];
+  const PEG_ROW_C = [[X_A * 0.6, MID_R], [X_A, DIV_R], [X_B, DIV_R], [100 - X_A * 0.6, MID_R]];
+  const PEG_ROW_E = [[X_A * 0.6, MID_R], [X_A, DIV_R], [100 - X_A * 0.6, MID_R]];
+  const PEG_ROW_F = [[X_A * 0.6, MID_R], [X_B, DIV_R], [100 - X_A * 0.6, MID_R]];
+  const PEG_PATTERN = [PEG_ROW_A, PEG_ROW_C, PEG_ROW_A, PEG_ROW_E];
+  const PEG_ROWS = PEG_PATTERN.length, PEG_SP = (PEG_BOT - PEG_TOP) / PEG_ROWS;
 
-  const ITEMS = [
-    { id: 'plus', label: '+200', color: '#f5b700' },
-    { id: 'x4', label: 'x4', color: '#2fbf71' },
-    { id: 'shield', label: 'ЩИТ', color: '#3aa8f0' },
-    { id: 'cluster', label: 'КЛАСТЕР', color: '#ff7a2f' },
-    { id: 'half', label: 'HALF LAND', color: '#8c5cf5' },
-    { id: 'fist', label: 'КУЛАК', color: '#ef4155' }
-  ];
-  const ITEM_NAMES = {
-    plus: '+200 шариков', x4: 'x4 на 45 сек', shield: 'Щит 20 сек', cluster: 'Кластерная пушка',
-    half: 'Half Land', fist: 'Кулак'
+  // ---- Spinner bonuses. Each tournament puts 5 random ones on the wheel.
+  const PLUS_BALLS = 200, X4_TIME = 45, SHIELD_TIME = 20, CLUSTER_SHELLS = 3, CLUSTER_N = 36;
+  const HALF_LAND_TIME = 1.0, CANNONBALL_HP = 150, TWIN_TIME = 20, FAN_N = 40;
+  const BOMB_R = 4.5, BOLTS = 6, BOLT_R = 1.6, FREEZE_TIME = 8, TURBO_TIME = 20, REPAIR_HP = 15, REPAIR_R = 4, GOLD_TIME = 30;
+  const BONUSES = {
+    plus: { label: '+200', name: '+200 шариков', color: '#e8a400' },
+    x4: { label: 'x4', name: 'x4 вместо x2 на 45 сек', color: '#2b9a52' },
+    shield: { label: 'ЩИТ', name: 'Щит на 20 сек', color: '#2f8fd8' },
+    cluster: { label: 'КЛАСТЕР', name: 'Кластерная пушка: 3 снаряда', color: '#f06a1d' },
+    half: { label: 'HALF LAND', name: 'Half Land: половина земли лидера', color: '#7c4ddc' },
+    ball: { label: 'ЯДРО', name: 'Ядро: один шар на 150 клеток', color: '#5f6b7a' },
+    twin: { label: 'ДВОЙНАЯ', name: 'Двойная пушка на 20 сек', color: '#c2255c' },
+    fan: { label: 'ВЕЕР', name: 'Веер: 40 шариков разом', color: '#be4bdb' },
+    bomb: { label: 'БОМБА', name: 'Бомба по земле лидера', color: '#2b2f36' },
+    bolt: { label: 'МОЛНИЯ', name: 'Молния: 6 ударов по врагам', color: '#4263eb' },
+    freeze: { label: 'ЛЁД', name: 'Лёд: соперники замерли на 8 сек', color: '#1098ad' },
+    turbo: { label: 'ТУРБО', name: 'Турбо: своё поле ×2 на 20 сек', color: '#e03131' },
+    div: { label: '÷2', name: 'Числа соперников ÷2', color: '#364fc7' },
+    repair: { label: 'РЕМОНТ', name: 'Ремонт: +15 прочности и земля вокруг', color: '#8d5a2b' },
+    gold: { label: '+ШАРИК', name: '+1 золотой шарик на 30 сек', color: '#0ca678' }
   };
+  const BONUS_IDS = Object.keys(BONUSES);
+  const WHEEL_SIZE = 5;
 
   class Roulette {
-    constructor(battle) {
+    constructor(battle, items) {
       this.b = battle;
+      this.items = items;          // bonus ids on this wheel
       this.queue = [];
       this.cur = null;
       this.ang = 0;
@@ -55,20 +74,21 @@
       this.queue = this.queue.filter((x) => x !== t);
       if (this.cur && this.cur.team === t) this.cur = null;
     }
+    busy() { return !!this.cur || this.queue.length > 0; }
     segAt(ang) {
-      const seg = Math.PI * 2 / ITEMS.length;
+      const n = this.items.length, seg = Math.PI * 2 / n;
       let a = (-Math.PI / 2 - ang) % (Math.PI * 2);
       if (a < 0) a += Math.PI * 2;
-      return Math.floor(a / seg) % ITEMS.length;
+      return Math.floor(a / seg) % n;
     }
     start(t) {
       const rng = this.b.rng;
-      const seg = Math.PI * 2 / ITEMS.length;
-      const result = rng.int(ITEMS.length);
+      const n = this.items.length, seg = Math.PI * 2 / n;
+      const result = rng.int(n);
       const target = -Math.PI / 2 - (result + 0.15 + rng() * 0.7) * seg;
       const minEnd = this.ang + Math.PI * 2 * 4;
       const a1 = target + Math.PI * 2 * Math.ceil((minEnd - target) / (Math.PI * 2));
-      this.cur = { team: t, result, t: 0, dur: 3.2, a0: this.ang, a1, phase: 'spin', lastSeg: this.segAt(this.ang) };
+      this.cur = { team: t, result, t: 0, dur: 2.8, a0: this.ang, a1, phase: 'spin', lastSeg: this.segAt(this.ang) };
       MOR.Sound.play('spin');
     }
     step(dt) {
@@ -84,25 +104,26 @@
         const s = this.segAt(this.ang);
         if (s !== c.lastSeg) { c.lastSeg = s; MOR.Sound.play('tick'); }
         if (k >= 1) { c.phase = 'show'; c.t = 0; MOR.Sound.play('prize'); }
-      } else if (c.t >= 1.1) {
+      } else if (c.t >= 1.0) {
         this.cur = null;
-        this.b.applyItem(c.team, ITEMS[c.result].id);
+        this.b.applyItem(c.team, this.items[c.result]);
       }
     }
     render(ctx, cx, cy, R) {
       const c = this.cur;
       if (!c) return;
       const team = this.b.teams[c.team];
+      const n = this.items.length, seg = Math.PI * 2 / n;
       const fade = Math.min(1, (c.phase === 'spin' ? c.t : 1) / 0.2);
-      const seg = Math.PI * 2 / ITEMS.length;
       ctx.save();
       ctx.globalAlpha = fade;
       ctx.fillStyle = 'rgba(6,8,16,0.55)';
       ctx.beginPath(); ctx.arc(cx, cy, R * 1.22, 0, Math.PI * 2); ctx.fill();
 
-      for (let i = 0; i < ITEMS.length; i++) {
+      for (let i = 0; i < n; i++) {
+        const it = BONUSES[this.items[i]];
         const a0 = this.ang + i * seg, a1 = a0 + seg;
-        ctx.fillStyle = ITEMS[i].color;
+        ctx.fillStyle = it.color;
         ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, a0, a1); ctx.closePath(); ctx.fill();
         if (c.phase === 'show' && i === c.result) {
           ctx.fillStyle = 'rgba(255,255,255,' + (0.25 + 0.2 * Math.sin(c.t * 18)) + ')';
@@ -115,12 +136,12 @@
         ctx.translate(cx, cy);
         ctx.rotate(a0 + seg / 2);
         ctx.fillStyle = '#ffffff';
-        const label = ITEMS[i].label;
-        const fs = R * (label.length > 6 ? 0.1 : label.length > 4 ? 0.12 : 0.16);
+        const label = it.label;
+        const fs = R * (label.length > 7 ? 0.105 : label.length > 5 ? 0.125 : label.length > 3 ? 0.14 : 0.17);
         ctx.font = Math.round(fs) + 'px ' + MOR.FONT;
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'rgba(0,0,0,0.45)';
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
         ctx.shadowBlur = 3;
         ctx.fillText(label, R * 0.9, 0);
         ctx.restore();
@@ -142,7 +163,7 @@
       ctx.fillStyle = team.color.hex;
       ctx.beginPath(); ctx.arc(cx, cy, R * 0.16, 0, Math.PI * 2); ctx.fill();
       ctx.lineWidth = R * 0.03;
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = team.color.light ? '#11141d' : '#ffffff';
       ctx.stroke();
       // Pointer.
       ctx.fillStyle = '#ffffff';
@@ -158,12 +179,13 @@
       // Caption.
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const fs = Math.round(R * 0.13);
+      const fs = Math.round(R * 0.12);
       ctx.font = fs + 'px ' + MOR.FONT;
-      const caption = c.phase === 'show' ? ITEM_NAMES[ITEMS[c.result].id] : 'Спиннер: ' + team.color.name;
+      const won = BONUSES[this.items[c.result]];
+      const caption = c.phase === 'show' ? won.name : 'Спиннер: ' + team.color.name;
       const tw = ctx.measureText(caption).width + fs * 1.2;
       const ty = cy + R * 1.38;
-      ctx.fillStyle = c.phase === 'show' ? ITEMS[c.result].color : 'rgba(10,12,22,0.85)';
+      ctx.fillStyle = c.phase === 'show' ? won.color : 'rgba(10,12,22,0.85)';
       MOR.roundRect(ctx, cx - tw / 2, ty - fs * 0.85, tw, fs * 1.7, fs * 0.5);
       ctx.fill();
       ctx.fillStyle = '#ffffff';
@@ -197,15 +219,16 @@
       this.shieldImg = this.shieldCtx.createImageData(N, N);
 
       this.teams = colors.map((color, i) => ({
-        i, color, alive: true, count: 1, x4Until: -1, shieldUntil: -1,
+        i, color, alive: true, count: 1,
+        x4Until: -1, shieldUntil: -1, twinUntil: -1, frozenUntil: -1, turboUntil: -1,
         captured: 0, peak: 0, elimTime: null, spinBlocked: false,
-        rel: { active: false, end: 0, val: 0, spawn: 0, fired: 0 },
+        rel: { active: false, end: 0, val: 0, spawn: 0 },
         cannon: {
           x: PIVOTS[i][0], y: PIVOTS[i][1], base: BASE_ANG[i], ang: BASE_ANG[i], dead: false, hp: CANNON_HP, hit: 0,
           cell: Math.floor(PIVOTS[i][1]) * N + Math.floor(PIVOTS[i][0]),
           phase: rng() * Math.PI * 2, speed: 1.15 + rng() * 0.35, recoil: 0, cluster: 0, clusterT: 0
         },
-        box: { marbles: [], pop: 0, flash: [0, 0, 0] }
+        box: { marbles: [], time: rng() * 10, pop: 0, flash: [0, 0, 0] }
       }));
       for (let y = 0; y < N; y++) {
         for (let x = 0; x < N; x++) {
@@ -216,26 +239,32 @@
           this.img.data[o] = c[0]; this.img.data[o + 1] = c[1]; this.img.data[o + 2] = c[2]; this.img.data[o + 3] = 255;
         }
       }
-      this.teams.forEach((t) => { t.peak = this.counts[t.i]; this.addMarble(t); });
+      this.teams.forEach((t) => {
+        t.peak = this.counts[t.i];
+        for (let k = 0; k < MARBLES; k++) this.addMarble(t, 12 + k * 38 + rng() * 10);
+      });
       this.dirty = true;
 
       this.bullets = [];
       this.newBullets = [];
       this.particles = [];
       this.floaters = [];
-      this.fists = [];
       this.waves = [];
+      this.strikes = [];   // bombs and lightning waiting to land
+      this.bolts = [];     // lightning flashes being drawn
       this.elimOrder = [];
-      this.roulette = new Roulette(this);
-      this.layoutCache = null;
+      let items = (opts.bonuses || []).filter((id) => BONUSES[id]);
+      if (items.length < 2) items = rng.shuffle(BONUS_IDS.slice()).slice(0, WHEEL_SIZE);
+      this.roulette = new Roulette(this, items);
       this.lastPower = 1;
     }
 
     // ------------------------------------------------------------ helpers
-    addMarble(team) {
+    addMarble(team, x, gold) {
       team.box.marbles.push({
-        x: this.rng.range(12, 88), y: CEIL + MARBLE_R + 1, vx: this.rng.range(-15, 15), vy: 0,
-        r: MARBLE_R, flash: 1, still: 0
+        x: x === undefined ? this.rng.range(12, 88) : x, y: CEIL + MARBLE_R + 1,
+        vx: this.rng.range(-15, 15), vy: SPAWN_VY, r: MARBLE_R, flash: 1, still: 0,
+        gold: !!gold, expires: gold ? this.time + GOLD_TIME : Infinity
       });
     }
 
@@ -253,6 +282,13 @@
     }
 
     shielded(t) { return this.teams[t].shieldUntil > this.time; }
+    frozen(t) { return this.teams[t].frozenUntil > this.time; }
+    working(t) { return t.alive && !t.cannon.dead; }
+    enemiesOf(team) { return this.teams.filter((x) => x.alive && x !== team); }
+    // Text anchor in front of a team's cannon, in field units.
+    nearCannon(team) {
+      return { x: team.cannon.x + (team.cannon.x < N / 2 ? 5 : -5), y: team.cannon.y + (team.cannon.y < N / 2 ? 4 : -4) };
+    }
 
     setCell(i, t) {
       const prev = this.owner[i];
@@ -266,8 +302,9 @@
       this.dirty = true;
       const pt = this.teams[prev];
       if (i === pt.cannon.cell && !pt.cannon.dead && pt.alive) {
-        // The cannon holds its own tile: each capture costs it 1 HP and the tile flips back.
-        pt.cannon.hp--;
+        // The cannon holds its own tile: each capture costs it HP (more in overtime)
+        // and the tile flips back.
+        pt.cannon.hp -= this.power();
         pt.cannon.hit = 1;
         if (pt.cannon.hp <= 0) this.destroyCannon(prev, t);
         else { this.restoreCell(i, prev); return true; }
@@ -293,27 +330,32 @@
       tm.cannon.dead = true;
       tm.count = Math.max(1, Math.round(tm.count + tm.rel.val));
       tm.rel.val = 0;
-      tm.cannon.cluster = 0;
       tm.rel.active = false;
+      tm.cannon.cluster = 0;
       tm.spinBlocked = false;
       this.roulette.cancel(t);
       this.burst(tm.cannon.x, tm.cannon.y, '#ffd27a', 30, 12);
       this.shake = Math.max(this.shake, 0.8);
-      this.float('field', tm.cannon.x + (tm.cannon.x < N / 2 ? 6 : -6), tm.cannon.y + (tm.cannon.y < N / 2 ? 3 : -3),
-        'Пушка разрушена', '#ffd27a', 0.9, 1.6);
-      MOR.Sound.play('fist');
-      const cx = tm.cannon.x, cy = tm.cannon.y;
+      const at = this.nearCannon(tm);
+      this.float('field', at.x + (tm.cannon.x < N / 2 ? 1 : -1), at.y - 1, 'Пушка разрушена', '#ffd27a', 0.9, 1.6);
+      MOR.Sound.play('boom');
+      const cells = this.cellsOf(t, tm.cannon.x, tm.cannon.y);
+      if (cells.length) {
+        this.waves.push({ team: by, target: t, cells, i: 0, force: true,
+          per: Math.max(1, Math.ceil(cells.length / (COLLAPSE_TIME / MOR.DT))) });
+      }
+    }
+
+    // Tiles of colour t sorted by distance from (x, y).
+    cellsOf(t, x, y) {
       const cells = [];
       for (let i = 0; i < N * N; i++) {
         if (this.owner[i] !== t) continue;
-        const x = (i % N) + 0.5 - cx, y = Math.floor(i / N) + 0.5 - cy;
-        cells.push([i, x * x + y * y]);
+        const dx = (i % N) + 0.5 - x, dy = Math.floor(i / N) + 0.5 - y;
+        cells.push([i, dx * dx + dy * dy]);
       }
       cells.sort((a, b) => a[1] - b[1]);
-      if (cells.length) {
-        this.waves.push({ team: by, target: t, cells: cells.map((c) => c[0]), i: 0, force: true,
-          per: Math.max(1, Math.ceil(cells.length / (COLLAPSE_TIME / MOR.DT))) });
-      }
+      return cells.map((c) => c[0]);
     }
 
     aliveTeams() { return this.teams.filter((t) => t.alive); }
@@ -326,19 +368,12 @@
       tm.spinBlocked = false;
       this.elimOrder.push(t);
       this.roulette.cancel(t);
-      const c = tm.cannon;
-      this.burst(c.x, c.y, tm.color.hex, 40, 14);
+      this.burst(tm.cannon.x, tm.cannon.y, tm.color.hex, 40, 14);
       this.shake = Math.max(this.shake, 1);
       this.float('field', N / 2, N / 2, tm.color.name + ' выбывает', tm.color.hex, 1.4, 1.8);
       MOR.Sound.play('elim');
       const alive = this.aliveTeams();
-      if (alive.length === 1) { this.finish(alive[0].i); return; }
-      for (const s of alive) {
-        if (s.cannon.dead || s.box.marbles.length >= MAX_MARBLES) continue;
-        this.addMarble(s);
-        this.float('box' + s.i, 50, 40, '+1 шарик', '#ffffff', 1.1, 1.4);
-      }
-      MOR.Sound.play('marble');
+      if (alive.length === 1) this.finish(alive[0].i);
     }
 
     finish(winner) {
@@ -346,7 +381,7 @@
       this.phase = 'over';
       this.phaseT = 0;
       this.winner = winner;
-      // finish() can run mid-iteration over bullets/fists/waves, so those are
+      // finish() can run mid-iteration over bullets/waves/strikes, so those are
       // cleared on the next step instead of here.
       this.floaters = this.floaters.filter((f) => f.space !== 'field');
       MOR.Sound.play('win');
@@ -369,8 +404,8 @@
       };
     }
 
-    // ------------------------------------------------------------ actions
-    onSlot(team, slot, m) {
+    // ------------------------------------------------------------ slots & release
+    onSlot(team, slot) {
       const box = team.box;
       if (slot === 0) {
         const mult = team.x4Until > this.time ? 4 : 2;
@@ -397,7 +432,6 @@
       r.end = this.time + MOR.clamp(0.35 + team.count / 120, 0.4, 3.0);
       r.val = 0;
       r.spawn = 1;
-      r.fired = 0;
       MOR.Sound.play('release');
     }
 
@@ -431,79 +465,153 @@
       return Math.pow(2, 1 + Math.floor((this.time - OVERTIME_AT) / OVERTIME_STEP));
     }
 
+    // kind: 0 ball, 1 cluster shell, 2 cannonball.
     fire(team, hp, kind) {
       const c = team.cannon;
-      if (kind === 0) hp *= this.power();
       const a = c.ang + (this.rng() - 0.5) * 0.06;
-      const dx = Math.cos(a), dy = Math.sin(a);
-      const sp = (kind === 1 ? 11 : BULLET_SPEED) * (0.96 + this.rng() * 0.08);
-      this.newBullets.push({ x: c.x + dx * 1.8, y: c.y + dy * 1.8, vx: dx * sp, vy: dy * sp, t: team.i, hp, kind, life: 0 });
+      this.fireAt(team, a, hp, kind);
+      // Twin cannon: every ordinary ball gets a sibling at a slight angle.
+      if (kind === 0 && team.twinUntil > this.time) this.fireAt(team, a + (this.rng() < 0.5 ? 0.16 : -0.16), hp, kind);
       c.recoil = 1;
-      team.rel.fired += hp;
       MOR.Sound.play('shot');
     }
 
+    fireAt(team, a, hp, kind) {
+      const c = team.cannon;
+      if (kind !== 1) hp *= this.power();
+      const dx = Math.cos(a), dy = Math.sin(a);
+      const sp = (kind === 0 ? BULLET_SPEED : kind === 1 ? 11 : 9) * (0.96 + this.rng() * 0.08);
+      this.newBullets.push({ x: c.x + dx * 1.8, y: c.y + dy * 1.8, vx: dx * sp, vy: dy * sp, t: team.i, hp, kind, life: 0 });
+    }
+
+    // ------------------------------------------------------------ bonuses
     applyItem(t, id) {
       const team = this.teams[t];
       team.spinBlocked = false;
-      if (!team.alive || team.cannon.dead || this.phase !== 'play') return;
-      const fx = team.cannon.x + (team.cannon.x === 0 ? 5 : -5), fy = team.cannon.y + (team.cannon.y === 0 ? 4 : -4);
+      if (!this.working(team) || this.phase !== 'play') return;
+      const at = this.nearCannon(team);
+      const box = 'box' + t;
       switch (id) {
         case 'plus':
           team.count += PLUS_BALLS;
           team.box.pop = 1;
-          this.float('box' + t, 50, 30, '+' + PLUS_BALLS, '#ffd84a', 1.4, 1.2);
+          this.float(box, 50, 30, '+' + PLUS_BALLS, '#ffd84a', 1.4, 1.2);
           break;
         case 'x4':
           team.x4Until = Math.max(team.x4Until, this.time) + X4_TIME;
-          this.float('box' + t, X_A / 2, 60, 'x4!', '#ffd84a', 1.4, 1.2);
+          this.float(box, X_A / 2, 60, 'x4!', '#ffd84a', 1.4, 1.2);
           break;
         case 'shield':
           team.shieldUntil = Math.max(team.shieldUntil, this.time) + SHIELD_TIME;
-          this.float('field', fx, fy, 'ЩИТ', '#9fe2ff', 1.2, 1.2);
+          this.float('field', at.x, at.y, 'ЩИТ', '#9fe2ff', 1.2, 1.2);
           MOR.Sound.play('shield');
           break;
         case 'cluster':
           team.cannon.cluster += CLUSTER_SHELLS;
-          this.float('field', fx, fy, 'КЛАСТЕР', '#ffb27a', 1.2, 1.2);
+          this.float('field', at.x, at.y, 'КЛАСТЕР', '#ffb27a', 1.2, 1.2);
           break;
         case 'half':
           this.startHalfLand(team);
           break;
-        case 'fist':
-          this.startFist(team);
+        case 'ball':
+          this.fire(team, CANNONBALL_HP, 2);
+          this.float('field', at.x, at.y, 'ЯДРО', '#e6e9f5', 1.2, 1.2);
+          MOR.Sound.play('boom');
+          break;
+        case 'twin':
+          team.twinUntil = Math.max(team.twinUntil, this.time) + TWIN_TIME;
+          this.float('field', at.x, at.y, 'ДВОЙНАЯ ПУШКА', '#ff9fbf', 1.0, 1.3);
+          break;
+        case 'fan': {
+          const c = team.cannon;
+          for (let k = 0; k < FAN_N; k++) this.fireAt(team, c.base - SWEEP + (2 * SWEEP * k) / (FAN_N - 1), 1, 0);
+          c.recoil = 1;
+          this.float('field', at.x, at.y, 'ВЕЕР', '#f3b8ff', 1.2, 1.2);
+          MOR.Sound.play('release');
+          break;
+        }
+        case 'bomb':
+          this.startBomb(team);
+          break;
+        case 'bolt':
+          this.startBolts(team);
+          break;
+        case 'freeze':
+          for (const e of this.enemiesOf(team)) {
+            e.frozenUntil = Math.max(e.frozenUntil, this.time) + FREEZE_TIME;
+            this.float('box' + e.i, 50, 45, 'ЛЁД', '#bff3ff', 1.5, 1.2);
+          }
+          MOR.Sound.play('freeze');
+          break;
+        case 'turbo':
+          team.turboUntil = Math.max(team.turboUntil, this.time) + TURBO_TIME;
+          this.float(box, 50, 45, 'ТУРБО', '#ff8f8f', 1.5, 1.2);
+          break;
+        case 'div':
+          for (const e of this.enemiesOf(team)) {
+            e.count = Math.max(1, Math.round(e.count / 2));
+            e.rel.val = Math.floor(e.rel.val / 2);
+            e.box.pop = 1;
+            this.float('box' + e.i, 50, 30, '÷2', '#9fb4ff', 1.4, 1.2);
+          }
+          break;
+        case 'repair':
+          team.cannon.hp = Math.min(CANNON_HP, team.cannon.hp + REPAIR_HP);
+          this.convertDisk(team.cannon.x, team.cannon.y, REPAIR_R, t);
+          this.float('field', at.x, at.y, 'РЕМОНТ', '#ffd9a8', 1.2, 1.2);
+          MOR.Sound.play('shield');
+          break;
+        case 'gold':
+          this.addMarble(team, undefined, true);
+          this.float(box, 50, 45, '+1 шарик', '#ffd84a', 1.3, 1.2);
+          MOR.Sound.play('marble');
           break;
       }
     }
 
-    startHalfLand(team) {
-      const cand = this.teams.filter((x) => x.alive && x !== team && !this.shielded(x.i));
-      if (!cand.length) { this.float('field', N / 2, N / 2, 'Цель под щитом', '#ffffff', 1, 1.2); return; }
+    // Strongest enemy by territory, optionally skipping shielded ones.
+    leader(team, allowShielded) {
+      const cand = this.enemiesOf(team).filter((x) => allowShielded || !this.shielded(x.i));
       cand.sort((a, b) => this.counts[b.i] - this.counts[a.i]);
-      const target = cand[0];
-      const cx = team.cannon.x, cy = team.cannon.y;
-      const cells = [];
-      for (let i = 0; i < N * N; i++) {
-        if (this.owner[i] !== target.i) continue;
-        const x = (i % N) + 0.5 - cx, y = Math.floor(i / N) + 0.5 - cy;
-        cells.push([i, x * x + y * y]);
-      }
-      cells.sort((a, b) => a[1] - b[1]);
+      return cand[0] || null;
+    }
+
+    startHalfLand(team) {
+      const target = this.leader(team, false);
+      if (!target) { this.float('field', N / 2, N / 2, 'Цель под щитом', '#ffffff', 1, 1.2); return; }
+      const cells = this.cellsOf(target.i, team.cannon.x, team.cannon.y);
       const take = Math.floor(cells.length / 2);
       if (take < 1) return;
-      this.waves.push({ team: team.i, target: target.i, cells: cells.slice(0, take).map((c) => c[0]), i: 0, per: Math.max(1, Math.ceil(take / (HALF_LAND_TIME / MOR.DT))) });
+      this.waves.push({ team: team.i, target: target.i, cells: cells.slice(0, take), i: 0,
+        per: Math.max(1, Math.ceil(take / (HALF_LAND_TIME / MOR.DT))) });
       this.float('field', N / 2, N / 2, 'HALF LAND: −' + take + ' у ' + target.color.name, '#d7c2ff', 1.1, 1.6);
       MOR.Sound.play('shield');
     }
 
-    startFist(team) {
-      const cand = this.teams.filter((x) => x.alive && x !== team);
-      if (!cand.length) return;
-      cand.sort((a, b) => (b.count - a.count) || (this.counts[b.i] - this.counts[a.i]));
-      const target = cand[0];
-      const a = team.cannon, b = target.cannon;
-      this.fists.push({ team: team.i, target: target.i, x0: a.x, y0: a.y, x1: b.x, y1: b.y, x: a.x, y: a.y, t: 0, ang: Math.atan2(b.y - a.y, b.x - a.x) });
-      this.float('field', N / 2, N / 2 - 3, 'КУЛАК → ' + target.color.name, '#ffb3bd', 1.1, 1.4);
+    startBomb(team) {
+      const target = this.leader(team, false);
+      if (!target) { this.float('field', N / 2, N / 2, 'Цель под щитом', '#ffffff', 1, 1.2); return; }
+      // Aim at the target's tile closest to the middle of its land.
+      let sx = 0, sy = 0, n = 0;
+      for (let i = 0; i < N * N; i++) if (this.owner[i] === target.i) { sx += i % N; sy += Math.floor(i / N); n++; }
+      const cells = this.cellsOf(target.i, sx / n + 0.5, sy / n + 0.5);
+      const ci = cells[0];
+      this.strikes.push({ kind: 'bomb', team: team.i, x: (ci % N) + 0.5, y: Math.floor(ci / N) + 0.5, t: 0, delay: 0.9, r: BOMB_R });
+      this.float('field', N / 2, N / 2, 'БОМБА → ' + target.color.name, '#e6e9f5', 1.1, 1.4);
+    }
+
+    startBolts(team) {
+      const pool = [];
+      for (let i = 0; i < N * N; i++) {
+        const o = this.owner[i];
+        if (o !== team.i && this.teams[o].alive && !this.shielded(o)) pool.push(i);
+      }
+      if (!pool.length) { this.float('field', N / 2, N / 2, 'Цель под щитом', '#ffffff', 1, 1.2); return; }
+      for (let k = 0; k < BOLTS; k++) {
+        const ci = pool[this.rng.int(pool.length)];
+        this.strikes.push({ kind: 'bolt', team: team.i, x: (ci % N) + 0.5, y: Math.floor(ci / N) + 0.5, t: 0, delay: 0.2 + k * 0.18, r: BOLT_R });
+      }
+      this.float('field', N / 2, N / 2, 'МОЛНИЯ', '#b7c5ff', 1.3, 1.3);
     }
 
     // ------------------------------------------------------------ simulation
@@ -518,8 +626,8 @@
       }
       if (this.phase === 'over') {
         this.bullets.length = 0;
-        this.fists.length = 0;
         this.waves.length = 0;
+        this.strikes.length = 0;
         if (this.phaseT > 3.5 && !this.reported) {
           this.reported = true;
           this.game.onBattleEnd(this.result());
@@ -531,14 +639,20 @@
       const pw = this.power();
       if (pw !== this.lastPower) {
         this.lastPower = pw;
-        this.float('field', N / 2, N / 2 + 4, 'ОВЕРТАЙМ: выстрелы ×' + pw, '#ffcf3a', 1.1, 1.8);
+        this.float('field', N / 2, N / 2 + 4, 'ОВЕРТАЙМ ×' + pw + ': шары пробивают насквозь', '#ffcf3a', 0.9, 2.0);
         MOR.Sound.play('spin');
       }
 
       for (const t of this.teams) {
-        if (!t.alive || t.cannon.dead) continue;
-        this.stepBox(t, dt);
+        if (!this.working(t)) continue;
         const c = t.cannon;
+        if (this.frozen(t.i)) {
+          // Frozen: box, cannon sweep, release and cluster shells all wait.
+          if (t.rel.active) t.rel.end += dt;
+          continue;
+        }
+        this.stepBox(t, dt);
+        if (t.turboUntil > this.time) this.stepBox(t, dt);
         c.phase += c.speed * dt;
         c.ang = c.base + SWEEP * Math.sin(c.phase);
         c.recoil = Math.max(0, c.recoil - dt * 6);
@@ -551,8 +665,8 @@
       if (this.phase !== 'play') return;
       this.roulette.step(dt);
       this.stepBullets(dt);
-      this.stepFists(dt);
-      this.stepWaves(dt);
+      this.stepStrikes(dt);
+      this.stepWaves();
       for (const t of this.teams) if (this.counts[t.i] > t.peak) t.peak = this.counts[t.i];
       this.checkStalemate();
     }
@@ -560,7 +674,7 @@
     // If every surviving colour has lost its cannon and nothing is in flight,
     // the colour holding the most tiles absorbs the rest and wins.
     checkStalemate() {
-      if (this.phase !== 'play' || this.bullets.length || this.fists.length || this.waves.length) return;
+      if (this.phase !== 'play' || this.bullets.length || this.waves.length || this.strikes.length) return;
       const alive = this.aliveTeams();
       if (alive.some((t) => !t.cannon.dead)) return;
       alive.sort((a, b) => this.counts[b.i] - this.counts[a.i]);
@@ -581,6 +695,10 @@
         f.t += dt;
         if (f.t > f.dur) this.floaters.splice(i, 1);
       }
+      for (let i = this.bolts.length - 1; i >= 0; i--) {
+        this.bolts[i].life -= dt;
+        if (this.bolts[i].life <= 0) this.bolts.splice(i, 1);
+      }
       for (const t of this.teams) {
         t.cannon.hit = Math.max(0, t.cannon.hit - dt * 5);
         t.box.pop = Math.max(0, t.box.pop - dt * 4);
@@ -589,24 +707,34 @@
       }
     }
 
+    // Pegs of one box at its own clock (frozen boxes stop, turbo boxes run double).
     pegsAt(time) {
       const out = [];
       const span = PEG_ROWS * PEG_SP;
       for (let k = 0; k < PEG_ROWS; k++) {
-        let off = (time * PEG_SPEED + k * PEG_SP) % span;
-        const y = PEG_BOT - off;
-        const f = Math.min(y - PEG_TOP, PEG_BOT - y) / PEG_FADE;
-        const r = PEG_R * MOR.clamp(f, 0, 1);
-        if (r < 0.05) continue;
-        const xs = k % 2 === 0 ? PEG_X_EVEN : PEG_X_ODD;
-        for (const x of xs) out.push({ x, y, r });
+        const row = PEG_PATTERN[k];
+        for (const p of row) {
+          const y = PEG_BOT - ((time * PEG_SPEED + k * PEG_SP) % span);
+          const f = MOR.clamp(Math.min(PEG_BOT - y, y - PEG_TOP) / PEG_FADE, 0, 1);
+          if (f >= 0.02) out.push({ x: p[0], y, r: p[1] * f });
+        }
       }
+      return out;
+    }
+
+    // Blocked slots become solid blocks: [x0, x1, top].
+    blocks(team) {
+      const out = [];
+      if (team.spinBlocked) out.push([X_A, X_B, POST_TOP]);
+      if (team.rel.active) out.push([X_B, 100, SLOT_TOP]);
       return out;
     }
 
     stepBox(team, dt) {
       const box = team.box;
-      const pegs = this.pegsAt(this.clock);
+      box.time += dt;
+      const pegs = this.pegsAt(box.time);
+      const blocks = this.blocks(team);
       const sub = 2, h = dt / sub;
       const ms = box.marbles;
       for (let s = 0; s < sub; s++) {
@@ -615,39 +743,64 @@
           m.x += m.vx * h;
           m.y += m.vy * h;
           for (const p of pegs) {
-            if (P.circle(m, p.x, p.y, p.r, 0.55, 0.03, 0, -PEG_SPEED)) m.vx += (this.rng() - 0.5) * 2;
+            if (P.circle(m, p.x, p.y, p.r, 0.5, 0.03, 0, -PEG_SPEED)) {
+              m.vx += (this.rng() - 0.5) * 2;
+              if (m.touch && m.touch !== p) m.cradle = true;
+              m.touch = p;
+            }
           }
           P.segment(m, 0, 0, 0, 100, 0, 0.5, 0.02);
           P.segment(m, 100, 0, 100, 100, 0, 0.5, 0.02);
-          P.segment(m, 0, CEIL, 100, CEIL, 0, 0.4, 0.02);
-          P.segment(m, X_A, SLOT_TOP, X_A, 100, 0.8, 0.4, 0.02);
-          P.segment(m, X_B, SLOT_TOP, X_B, 100, 0.8, 0.4, 0.02);
-          if (team.spinBlocked) P.segment(m, X_A, lidY(X_A), X_B, lidY(X_B), 0.9, 0.3, 0.02);
-          if (team.rel.active) P.segment(m, X_B, lidY(X_B), 100, lidY(100), 0.9, 0.3, 0.02);
+          P.segment(m, 0, CEIL, 100, CEIL, 0, 0.1, 0.02);
+          P.segment(m, X_A, POST_TOP, X_A, 100, POST_R, 0.4, 0.02);
+          P.segment(m, X_B, POST_TOP, X_B, 100, POST_R, 0.4, 0.02);
+          // Marbles already inside a slot when it closes just finish falling.
+          for (const bl of blocks) if (m.y < bl[2] + 1) P.rect(m, bl[0], bl[2], bl[1], 100, 0.45, 0.02);
           P.limit(m, 140);
         }
         for (let i = 0; i < ms.length; i++) for (let j = i + 1; j < ms.length; j++) P.balls(ms[i], ms[j], 0.5);
       }
-      for (const m of ms) {
+      for (let i = ms.length - 1; i >= 0; i--) {
+        const m = ms[i];
+        if (m.gold && this.time > m.expires) { ms.splice(i, 1); continue; }
         if (m.y > TRIGGER_Y) {
-          const slot = m.x < X_A ? 0 : m.x < X_B ? 1 : 2;
-          this.onSlot(team, slot, m);
+          this.onSlot(team, m.x < X_A ? 0 : m.x < X_B ? 1 : 2);
           m.x = this.rng.range(10, 90);
           m.y = CEIL + MARBLE_R + 1;
           m.vx = this.rng.range(-15, 15);
-          m.vy = 0;
+          m.vy = SPAWN_VY;
           m.flash = 1;
           m.still = 0;
-        } else {
-          const sp = Math.abs(m.vx) + Math.abs(m.vy);
-          m.still = sp < 3 ? m.still + dt : 0;
-          if (m.still > 1.5) { m.vx = this.rng.range(-40, 40); m.vy = -30; m.still = 0; }
+          continue;
         }
+        // A marble wedged between two pegs climbs out over one of them; one riding up
+        // on a single peg rolls off it. The divider pair thus acts as a roof over the spinner.
+        m.popT = Math.max(0, (m.popT || 0) - dt);
+        const riding = m.touch && m.vy < 0 && m.vy > -PEG_SPEED - 6;
+        m.ride = riding ? (m.ride || 0) + dt : 0;
+        if (m.popT === 0 && (m.cradle || m.ride > 0.12)) {
+          if (m.cradle) {
+            m.vx = (this.rng() < 0.5 ? -1 : 1) * this.rng.range(40, 50);
+            m.vy = -45;
+          } else {
+            const dir = m.x < m.touch.x ? -1 : m.x > m.touch.x ? 1 : (this.rng() < 0.5 ? -1 : 1);
+            m.vx = dir * this.rng.range(35, 50);
+            m.vy = 5;
+          }
+          m.ride = 0;
+          m.popT = 0.25;
+        }
+        m.touch = null;
+        m.cradle = false;
+        const sp = Math.abs(m.vx) + Math.abs(m.vy);
+        m.still = sp < 3 ? m.still + dt : 0;
+        if (m.still > 1.0) { m.vx = this.rng.range(-40, 40); m.vy = -30; m.still = 0; }
       }
     }
 
     stepBullets(dt) {
       const owner = this.owner, teams = this.teams;
+      const pierce = this.power() > 1;
       const list = this.bullets;
       for (let i = list.length - 1; i >= 0; i--) {
         const b = list[i];
@@ -685,7 +838,9 @@
             }
             b.hp -= 1;
             if (b.hp <= 0) { dead = true; break; }
-            // Heavy ball: bounce off the tile it just took and keep going.
+            // In overtime heavy balls punch straight through enemy land toward the cannons.
+            if (pierce) { b.x = nx; b.y = ny; continue; }
+            // Otherwise a heavy ball bounces off the tile it just took and keeps going.
             const pcx = Math.min(N - 1, px | 0), pcy = Math.min(N - 1, py | 0);
             if (pcx !== cx) b.vx = -b.vx;
             if (pcy !== cy) b.vy = -b.vy;
@@ -716,32 +871,24 @@
       }
     }
 
-    stepFists(dt) {
-      for (let i = this.fists.length - 1; i >= 0; i--) {
-        const f = this.fists[i];
-        if (!this.teams[f.team].alive || this.phase !== 'play') { this.fists.splice(i, 1); continue; }
-        f.t += dt;
-        const k = Math.min(1, f.t / FIST_TIME);
-        const e = MOR.easeInOut(k);
-        f.x = MOR.lerp(f.x0, f.x1, e);
-        f.y = MOR.lerp(f.y0, f.y1, e);
-        this.convertDisk(f.x, f.y, FIST_R, f.team);
-        if (k >= 1) {
-          this.fists.splice(i, 1);
-          const me = this.teams[f.team], tg = this.teams[f.target];
-          if (me.alive && tg.alive) {
-            const stolen = tg.count;
-            me.count += stolen;
-            tg.count = 1;
-            tg.rel.active = false;
-            me.box.pop = 1;
-            this.float('box' + me.i, 50, 30, '+' + MOR.fmt(stolen), '#ffd84a', 1.3, 1.3);
-            this.float('box' + tg.i, 50, 30, 'украдено', '#ff8a8a', 1.1, 1.3);
-          }
-          this.burst(f.x1, f.y1, '#ffffff', 26, 16);
+    stepStrikes(dt) {
+      for (let i = this.strikes.length - 1; i >= 0; i--) {
+        const s = this.strikes[i];
+        if (!this.teams[s.team].alive || this.phase !== 'play') { this.strikes.splice(i, 1); continue; }
+        s.t += dt;
+        if (s.t < s.delay) continue;
+        this.strikes.splice(i, 1);
+        if (s.kind === 'bomb') {
+          this.burst(s.x, s.y, '#ffb347', 40, 18);
+          this.burst(s.x, s.y, '#ffffff', 16, 10);
           this.shake = Math.max(this.shake, 1);
-          MOR.Sound.play('fist');
+          MOR.Sound.play('boom');
+        } else {
+          this.bolts.push({ x: s.x, y: s.y, life: 0.3, seed: this.rng() * 1000 });
+          this.burst(s.x, s.y, '#dbe4ff', 10, 10);
+          MOR.Sound.play('zap');
         }
+        this.convertDisk(s.x, s.y, s.r, s.team);
       }
     }
 
@@ -864,8 +1011,8 @@
         ctx.beginPath();
         let any = false;
         for (const b of this.bullets) {
-          if (b.t !== t.i) continue;
-          const r = b.kind === 1 ? 0.75 : Math.min(1.1, 0.27 + 0.08 * Math.log2(Math.max(1, b.hp)));
+          if (b.t !== t.i || b.kind !== 0) continue;
+          const r = Math.min(1.1, 0.27 + 0.08 * Math.log2(Math.max(1, b.hp)));
           const x = F.x + b.x * cs, y = F.y + b.y * cs;
           ctx.moveTo(x + r * cs, y);
           ctx.arc(x, y, r * cs, 0, Math.PI * 2);
@@ -873,12 +1020,25 @@
         }
         if (any) { ctx.fill(); ctx.stroke(); }
       }
-      // Cluster shells get a white ring.
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = Math.max(1.5, cs * 0.2);
+      // Cluster shells and cannonballs.
       for (const b of this.bullets) {
-        if (b.kind !== 1) continue;
-        ctx.beginPath(); ctx.arc(F.x + b.x * cs, F.y + b.y * cs, 0.95 * cs, 0, Math.PI * 2); ctx.stroke();
+        if (b.kind === 0) continue;
+        const x = F.x + b.x * cs, y = F.y + b.y * cs, col = this.teams[b.t].color;
+        if (b.kind === 1) {
+          ctx.fillStyle = col.hex;
+          ctx.beginPath(); ctx.arc(x, y, 0.75 * cs, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = Math.max(1.5, cs * 0.2);
+          ctx.beginPath(); ctx.arc(x, y, 0.95 * cs, 0, Math.PI * 2); ctx.stroke();
+        } else {
+          ctx.fillStyle = '#20242e';
+          ctx.beginPath(); ctx.arc(x, y, 1.25 * cs, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = col.hex;
+          ctx.lineWidth = Math.max(2, cs * 0.35);
+          ctx.stroke();
+          ctx.fillStyle = 'rgba(255,255,255,0.35)';
+          ctx.beginPath(); ctx.arc(x - cs * 0.4, y - cs * 0.4, cs * 0.35, 0, Math.PI * 2); ctx.fill();
+        }
       }
       // Particles.
       for (const p of this.particles) {
@@ -888,9 +1048,9 @@
         ctx.fillRect(F.x + p.x * cs - cs * 0.2, F.y + p.y * cs - cs * 0.2, cs * 0.4, cs * 0.4);
       }
       ctx.globalAlpha = 1;
+      this.renderStrikes(ctx, F, cs);
       ctx.restore();
 
-      for (const f of this.fists) this.drawFist(ctx, F.x + f.x * cs, F.y + f.y * cs, cs * 2.6, f.ang, this.teams[f.team].color);
       for (const t of this.teams) this.drawCannon(ctx, t, F, cs);
 
       // Frame.
@@ -899,23 +1059,71 @@
       ctx.strokeRect(F.x - 1, F.y - 1, F.s + 2, F.s + 2);
     }
 
+    renderStrikes(ctx, F, cs) {
+      for (const s of this.strikes) {
+        if (s.kind !== 'bomb') continue;
+        const x = F.x + s.x * cs, y = F.y + s.y * cs;
+        const k = Math.min(1, s.t / s.delay);
+        // Target ring.
+        ctx.strokeStyle = 'rgba(255,90,90,' + (0.5 + 0.4 * Math.sin(this.clock * 20)) + ')';
+        ctx.lineWidth = Math.max(1.5, cs * 0.25);
+        ctx.setLineDash([cs * 0.8, cs * 0.5]);
+        ctx.beginPath(); ctx.arc(x, y, s.r * cs, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+        // Falling bomb with its shadow.
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.beginPath(); ctx.ellipse(x, y, cs * (0.5 + k), cs * (0.25 + k * 0.5), 0, 0, Math.PI * 2); ctx.fill();
+        const by = y - (1 - k) * cs * 10;
+        ctx.fillStyle = '#16181e';
+        ctx.beginPath(); ctx.arc(x, by, cs * 1.1, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#ffb347';
+        ctx.lineWidth = Math.max(1.5, cs * 0.2);
+        ctx.beginPath(); ctx.moveTo(x + cs * 0.6, by - cs * 0.8); ctx.lineTo(x + cs * 1.1, by - cs * 1.5); ctx.stroke();
+      }
+      for (const b of this.bolts) {
+        const x = F.x + b.x * cs, y = F.y + b.y * cs;
+        ctx.globalAlpha = Math.min(1, b.life / 0.15);
+        ctx.strokeStyle = '#e7ecff';
+        ctx.lineWidth = Math.max(2, cs * 0.35);
+        ctx.shadowColor = '#7f96ff';
+        ctx.shadowBlur = cs * 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x + Math.sin(b.seed) * cs * 3, F.y);
+        const steps = 7;
+        for (let i = 1; i <= steps; i++) {
+          const k = i / steps;
+          const jitter = i === steps ? 0 : Math.sin(b.seed * (i + 1) * 1.7) * cs * 1.6;
+          ctx.lineTo(MOR.lerp(x + Math.sin(b.seed) * cs * 3, x, k) + jitter, MOR.lerp(F.y, y, k));
+        }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+      }
+    }
+
     drawCannon(ctx, t, F, cs) {
       const c = t.cannon;
       const x = F.x + c.x * cs, y = F.y + c.y * cs;
       const R = cs * 1.25;
-      const working = t.alive && !c.dead;
+      const working = this.working(t);
+      const frozen = working && this.frozen(t.i);
       ctx.save();
       ctx.translate(x, y);
       if (working) {
         ctx.rotate(c.ang);
         const back = c.recoil * cs * 0.3;
-        ctx.fillStyle = '#2a2f40';
-        ctx.strokeStyle = '#0b0d14';
-        ctx.lineWidth = Math.max(1, cs * 0.16);
-        MOR.roundRect(ctx, R * 0.3 - back, -cs * 0.42, cs * 2.3, cs * 0.84, cs * 0.2);
-        ctx.fill(); ctx.stroke();
-        ctx.fillStyle = t.color.hex;
-        ctx.fillRect(R * 0.3 - back + cs * 1.8, -cs * 0.42, cs * 0.42, cs * 0.84);
+        const twin = t.twinUntil > this.time;
+        const barrels = twin ? [-0.32, 0.32] : [0];
+        for (const off of barrels) {
+          ctx.fillStyle = '#2a2f40';
+          ctx.strokeStyle = '#0b0d14';
+          ctx.lineWidth = Math.max(1, cs * 0.16);
+          const bw = twin ? 0.56 : 0.84;
+          MOR.roundRect(ctx, R * 0.3 - back, off * cs - cs * bw / 2, cs * 2.3, cs * bw, cs * 0.2);
+          ctx.fill(); ctx.stroke();
+          ctx.fillStyle = t.color.hex;
+          ctx.fillRect(R * 0.3 - back + cs * 1.8, off * cs - cs * bw / 2, cs * 0.42, cs * bw);
+        }
         ctx.rotate(-c.ang);
       }
       ctx.fillStyle = working ? t.color.hex : '#3a3f4f';
@@ -934,6 +1142,10 @@
           ctx.strokeStyle = k > 0.5 ? '#5ef08a' : k > 0.25 ? '#ffcf3a' : '#ff4d5e';
           ctx.lineWidth = Math.max(1.5, cs * 0.2);
           ctx.beginPath(); ctx.arc(0, 0, R * 0.72, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k); ctx.stroke();
+        }
+        if (frozen) {
+          ctx.fillStyle = 'rgba(170,230,255,0.55)';
+          ctx.beginPath(); ctx.arc(0, 0, R * 1.3, 0, Math.PI * 2); ctx.fill();
         }
       } else {
         // Wrecked: grey base with a cross.
@@ -961,33 +1173,12 @@
       ctx.restore();
     }
 
-    drawFist(ctx, x, y, size, ang, color) {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(ang);
-      ctx.fillStyle = color.hex;
-      ctx.strokeStyle = '#0b0d14';
-      ctx.lineWidth = Math.max(2, size * 0.08);
-      // Speed lines.
-      ctx.globalAlpha = 0.5;
-      ctx.fillStyle = '#ffffff';
-      for (let i = -1; i <= 1; i++) ctx.fillRect(-size * 1.6, i * size * 0.3 - size * 0.04, size * 0.9, size * 0.08);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = color.hex;
-      // Wrist + palm.
-      MOR.roundRect(ctx, -size * 0.9, -size * 0.38, size * 0.6, size * 0.76, size * 0.12);
-      ctx.fill(); ctx.stroke();
-      MOR.roundRect(ctx, -size * 0.45, -size * 0.55, size * 0.85, size * 1.1, size * 0.25);
-      ctx.fill(); ctx.stroke();
-      // Knuckles.
-      for (let i = 0; i < 4; i++) {
-        const ky = -size * 0.41 + i * size * 0.275;
-        ctx.beginPath(); ctx.arc(size * 0.38, ky, size * 0.16, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      }
-      // Thumb.
-      MOR.roundRect(ctx, -size * 0.25, size * 0.25, size * 0.55, size * 0.26, size * 0.12);
-      ctx.fill(); ctx.stroke();
-      ctx.restore();
+    // Name and seconds left of the most relevant timed effect on a team.
+    status(t) {
+      if (this.frozen(t.i)) return ['ЛЁД', t.frozenUntil, '#9fe8ff'];
+      if (t.turboUntil > this.time) return ['ТУРБО', t.turboUntil, '#ff8f8f'];
+      if (t.twinUntil > this.time) return ['2×', t.twinUntil, '#ff9fbf'];
+      return null;
     }
 
     renderBox(ctx, t, R) {
@@ -1004,16 +1195,17 @@
       ctx.clip();
 
       // Slots.
-      const slotH = 100 - SLOT_TOP;
       const x4 = t.x4Until > this.time;
       const slotCol = [x4 ? '#b8860b' : '#1f8a4c', '#c79a00', '#c0392b'];
       const xs = [0, X_A, X_B, 100];
+      const blocked = [false, t.spinBlocked, t.rel.active];
+      const tops = [SLOT_TOP, POST_TOP, SLOT_TOP];
       for (let k = 0; k < 3; k++) {
         ctx.fillStyle = slotCol[k];
-        ctx.fillRect(xs[k], SLOT_TOP, xs[k + 1] - xs[k], slotH);
+        ctx.fillRect(xs[k], tops[k], xs[k + 1] - xs[k], 100 - tops[k]);
         if (box.flash[k] > 0) {
           ctx.fillStyle = 'rgba(255,255,255,' + box.flash[k] * 0.6 + ')';
-          ctx.fillRect(xs[k], SLOT_TOP, xs[k + 1] - xs[k], slotH);
+          ctx.fillRect(xs[k], tops[k], xs[k + 1] - xs[k], 100 - tops[k]);
         }
       }
       ctx.fillStyle = '#ffffff';
@@ -1031,51 +1223,57 @@
       ctx.fillText('ВЫПУСК', (X_B + 100) / 2, 92);
       this.drawMiniWheel(ctx, (X_A + X_B) / 2, 92, 4.6, t.spinBlocked ? this.clock * 8 : 0);
 
-      // Lids on blocked slots.
-      const lid = (xa, xb) => {
-        ctx.strokeStyle = '#11141d';
-        ctx.lineWidth = 2.4;
-        ctx.lineCap = 'round';
-        ctx.beginPath(); ctx.moveTo(xa, lidY(xa)); ctx.lineTo(xb, lidY(xb)); ctx.stroke();
-        ctx.strokeStyle = '#ffcf3a';
-        ctx.lineWidth = 0.8;
-        ctx.setLineDash([2, 2]);
-        ctx.beginPath(); ctx.moveTo(xa, lidY(xa)); ctx.lineTo(xb, lidY(xb)); ctx.stroke();
-        ctx.setLineDash([]);
-      };
-      if (t.spinBlocked) {
-        ctx.fillStyle = 'rgba(0,0,0,0.35)';
-        ctx.fillRect(X_A, SLOT_TOP, X_B - X_A, slotH);
-        lid(X_A, X_B);
-      }
-      if (t.rel.active) {
-        ctx.fillStyle = 'rgba(0,0,0,0.25)';
-        ctx.fillRect(X_B, SLOT_TOP, 100 - X_B, slotH);
-        lid(X_B, 100);
+      // Blocked slots turn into solid dark blocks.
+      for (let k = 1; k < 3; k++) {
+        if (!blocked[k]) continue;
+        const x0 = xs[k], w = xs[k + 1] - xs[k], top = tops[k], bh = 100 - top;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x0, top, w, bh);
+        ctx.clip();
+        ctx.fillStyle = 'rgba(8,10,16,0.86)';
+        ctx.fillRect(x0, top, w, bh);
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let d = -bh; d < w; d += 4) { ctx.moveTo(x0 + d, 100); ctx.lineTo(x0 + d + bh, top); }
+        ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.fillRect(x0, top, w, 0.9);
+        if (k === 2) {
+          // Release progress: the block empties as the cannon fires.
+          const left = Math.max(0, Math.min(1, (t.rel.end - this.time) / 3));
+          ctx.fillStyle = 'rgba(192,57,43,0.55)';
+          ctx.fillRect(x0 + 3, 96, (w - 6) * left, 1.6);
+        } else {
+          this.drawMiniWheel(ctx, x0 + w / 2, 92, 4.6, this.clock * 8, 0.35);
+        }
       }
 
-      // Dividers.
+      // Divider posts around the spinner slot.
       ctx.strokeStyle = '#e9ecf7';
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = POST_R * 2;
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(X_A, SLOT_TOP); ctx.lineTo(X_A, 100);
-      ctx.moveTo(X_B, SLOT_TOP); ctx.lineTo(X_B, 100);
+      ctx.moveTo(X_A, POST_TOP); ctx.lineTo(X_A, 100);
+      ctx.moveTo(X_B, POST_TOP); ctx.lineTo(X_B, 100);
       ctx.stroke();
 
-      // Pegs (rising grid).
+      // Pegs (rising grid growing out of the dividers and walls).
       ctx.fillStyle = '#e6e9f5';
-      for (const p of this.pegsAt(this.clock)) {
+      for (const p of this.pegsAt(box.time)) {
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
       }
 
       // Marbles.
+      const gold = MOR.GOLD_COLOR;
       for (const m of box.marbles) {
         if (m.flash > 0) {
           ctx.fillStyle = 'rgba(255,255,255,' + m.flash * 0.4 + ')';
           ctx.beginPath(); ctx.arc(m.x, m.y, m.r + 3 * m.flash, 0, Math.PI * 2); ctx.fill();
         }
-        MOR.drawMarble(ctx, m.x, m.y, m.r, t.color);
+        MOR.drawMarble(ctx, m.x, m.y, m.r, m.gold ? gold : t.color);
       }
 
       // Header with the ball count.
@@ -1090,19 +1288,32 @@
       ctx.fillStyle = t.rel.active ? '#ffcf3a' : '#ffffff';
       ctx.fillText(MOR.fmt(shown), 0, 0);
       ctx.restore();
-      // Marble count (dots) on the left, colour swatch on the right.
-      for (let k = 0; k < 3; k++) {
-        ctx.fillStyle = k < box.marbles.length ? '#ffffff' : 'rgba(255,255,255,0.18)';
+      // Marbles in play (dots) on the left, active timed effect on the right.
+      box.marbles.forEach((m, k) => {
+        ctx.fillStyle = m.gold ? gold.hex : '#ffffff';
         ctx.beginPath(); ctx.arc(5 + k * 4.2, CEIL / 2, 1.4, 0, Math.PI * 2); ctx.fill();
+      });
+      const st = this.status(t);
+      if (st) {
+        ctx.font = '4.6px ' + MOR.FONT;
+        ctx.textAlign = 'right';
+        ctx.fillStyle = st[2];
+        ctx.fillText(st[0] + ' ' + Math.ceil(st[1] - this.time), 97, CEIL / 2 + 0.4);
+        ctx.textAlign = 'center';
+      }
+      if (this.frozen(t.i) && this.working(t)) {
+        ctx.fillStyle = 'rgba(150,220,255,0.22)';
+        ctx.fillRect(0, CEIL, 100, 100 - CEIL);
       }
       ctx.restore(); // clip
 
       MOR.roundRect(ctx, 0, 0, 100, 100, 5);
-      ctx.lineWidth = 1.6;
-      ctx.strokeStyle = t.color.hex;
+      const turbo = t.turboUntil > this.time && this.working(t);
+      ctx.lineWidth = turbo ? 2.4 : 1.6;
+      ctx.strokeStyle = turbo && Math.floor(this.clock * 6) % 2 === 0 ? '#ffffff' : t.color.hex;
       ctx.stroke();
 
-      if (!t.alive || t.cannon.dead) {
+      if (!this.working(t)) {
         MOR.roundRect(ctx, 0, 0, 100, 100, 5);
         ctx.fillStyle = 'rgba(5,7,13,0.72)';
         ctx.fill();
@@ -1116,15 +1327,19 @@
       ctx.restore();
     }
 
-    drawMiniWheel(ctx, x, y, r, ang) {
-      for (let i = 0; i < ITEMS.length; i++) {
-        const a0 = ang + i * Math.PI * 2 / ITEMS.length;
-        ctx.fillStyle = ITEMS[i].color;
-        ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r, a0, a0 + Math.PI * 2 / ITEMS.length); ctx.closePath(); ctx.fill();
+    drawMiniWheel(ctx, x, y, r, ang, alpha) {
+      const items = this.roulette.items, n = items.length;
+      ctx.save();
+      if (alpha !== undefined) ctx.globalAlpha = alpha;
+      for (let i = 0; i < n; i++) {
+        const a0 = ang + i * Math.PI * 2 / n;
+        ctx.fillStyle = BONUSES[items[i]].color;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r, a0, a0 + Math.PI * 2 / n); ctx.closePath(); ctx.fill();
       }
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 0.6;
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
     }
 
     renderBar(ctx, B, h) {
@@ -1215,5 +1430,7 @@
 
   MOR.Battle = Battle;
   MOR.Battle.N = N;
-  MOR.ITEMS = ITEMS;
+  MOR.BONUSES = BONUSES;
+  MOR.BONUS_IDS = BONUS_IDS;
+  MOR.WHEEL_SIZE = WHEEL_SIZE;
 })();

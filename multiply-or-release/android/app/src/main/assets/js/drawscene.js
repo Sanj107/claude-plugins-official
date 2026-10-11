@@ -75,6 +75,7 @@
       b.vy = 0;
       b.still = 0;
       b.flash = 1;
+      b.routed = false;
     }
 
     step(dt) {
@@ -104,6 +105,7 @@
       for (let i = 0; i < 4; i++) if (this.full[i]) segs.push.apply(segs, this.capSegs(i));
       for (let k = 0; k < sub; k++) {
         for (const b of this.balls) {
+          if (b.route) continue;
           b.vy += G * h;
           b.x += b.vx * h;
           b.y += b.vy * h;
@@ -115,8 +117,12 @@
           P.limit(b, 160);
         }
         const bs = this.balls;
-        for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) P.balls(bs[i], bs[j], 0.3);
+        for (let i = 0; i < bs.length; i++) {
+          if (bs[i].route) continue;
+          for (let j = i + 1; j < bs.length; j++) if (!bs[j].route) P.balls(bs[i], bs[j], 0.3);
+        }
       }
+      this.stepRoute(dt);
 
       // Tube bookkeeping.
       const counts = [0, 0, 0, 0];
@@ -127,7 +133,7 @@
         if (b.tube >= 0) { counts[b.tube]++; inTubes++; if (prev < 0) MOR.Sound.play('land'); }
         const sp = Math.hypot(b.vx, b.vy);
         if (sp > 3) moving++;
-        if (b.tube < 0) {
+        if (b.tube < 0 && !b.route) {
           // A marble resting outside a tube (e.g. on a closed cap) goes back to the top.
           const onCap = this.full.some((f, i) => f && Math.abs(b.x - TUBE_X[i]) < TUBE_HW + 2 && b.y > TUBE_TOP - 9 && b.y < TUBE_TOP + BR + 0.5);
           b.still = sp < 4 ? b.still + dt : 0;
@@ -135,11 +141,12 @@
         }
       }
       for (let i = 0; i < 4; i++) if (!this.full[i] && counts[i] >= CAP) { this.full[i] = true; MOR.Sound.play('x2'); }
+      this.autoRoute(counts);
 
       // Safety net: after a long draw, steer stragglers straight into an open tube.
       if (this.time > 35) {
         for (const b of this.balls) {
-          if (b.tube >= 0 || b.y > 120) continue;
+          if (b.tube >= 0 || b.y > 120 || b.route || b.routed) continue;
           const open = [0, 1, 2, 3].filter((i) => counts[i] < CAP);
           if (!open.length) break;
           const i = open[0];
@@ -150,6 +157,46 @@
 
       if (inTubes === this.balls.length && moving === 0) this.settleT += dt; else this.settleT = 0;
       if (this.settleT > 0.5) this.finish();
+    }
+
+    // Once only one tube is still open, every remaining marble belongs to it:
+    // send them there one by one instead of waiting for the bounces.
+    autoRoute(counts) {
+      const open = [0, 1, 2, 3].filter((i) => counts[i] < CAP);
+      if (open.length !== 1) return;
+      if (this.balls.some((b) => b.route || b.routed)) {
+        // Wait until the previous marble has dropped into the tube.
+        for (const b of this.balls) if (b.routed && b.tube >= 0) b.routed = false;
+        if (this.balls.some((b) => b.route || b.routed)) return;
+      }
+      const free = this.balls.filter((b) => b.tube < 0);
+      if (!free.length) return;
+      free.sort((a, b) => b.y - a.y);
+      const b = free[0];
+      b.route = { tube: open[0], x0: b.x, y0: b.y, t: 0 };
+      this.routeTube = open[0];
+      MOR.Sound.play('spin');
+    }
+
+    stepRoute(dt) {
+      for (const b of this.balls) {
+        const r = b.route;
+        if (!r) continue;
+        r.t += dt;
+        const k = Math.min(1, r.t / 0.7);
+        const e = MOR.easeInOut(k);
+        const tx = TUBE_X[r.tube], ty = TUBE_TOP - 5;
+        b.x = MOR.lerp(r.x0, tx, e);
+        b.y = MOR.lerp(r.y0, ty, e) - Math.sin(Math.PI * k) * 14;
+        b.vx = 0; b.vy = 0;
+        b.flash = Math.max(b.flash, 0.5);
+        if (k >= 1) {
+          b.route = null;
+          b.routed = true;
+          b.x = tx; b.y = ty; b.vy = 40;
+          b.still = 0;
+        }
+      }
     }
 
     finish() {
@@ -233,6 +280,18 @@
           ctx.beginPath(); ctx.arc(b.x, b.y, b.r + 3 * b.flash, 0, Math.PI * 2); ctx.fill();
         }
         MOR.drawMarble(ctx, b.x, b.y, b.r, b.c);
+      }
+
+      const routing = this.balls.find((b) => b.route);
+      if (routing) {
+        ctx.fillStyle = 'rgba(5,7,13,0.75)';
+        MOR.roundRect(ctx, 12, 2, 76, 8, 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffcf3a';
+        ctx.font = '3.8px ' + MOR.FONT;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(routing.c.name + ' → Раунд ' + (routing.route.tube + 1), 50, 6.2);
       }
 
       if (this.phase === 'ready') {

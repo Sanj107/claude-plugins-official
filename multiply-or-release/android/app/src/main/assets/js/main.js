@@ -20,6 +20,48 @@
     try { window.localStorage.setItem(key, val); } catch (e) { /* storage unavailable */ }
   }
 
+  // ---- Tournament history (kept on the device in localStorage)
+  const HISTORY_KEY = 'mor.history', HISTORY_MAX = 200;
+  function loadHistory() {
+    try {
+      const v = JSON.parse(storeGet(HISTORY_KEY) || '[]');
+      return Array.isArray(v) ? v.filter((e) => e && Array.isArray(e.top)) : [];
+    } catch (e) { return []; }
+  }
+  function saveHistory(list) { storeSet(HISTORY_KEY, JSON.stringify(list.slice(0, HISTORY_MAX))); }
+  function colorById(id) {
+    return MOR.COLORS.find((c) => c.id === id) || { id, name: id, hex: '#8f98a8' };
+  }
+  function fmtDate(ts) {
+    const d = new Date(ts);
+    try {
+      return d.toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+      return d.toISOString().slice(0, 16).replace('T', ' ');
+    }
+  }
+  function plural(n, one, few, many) {
+    const m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return one;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+    return many;
+  }
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function bonusChip(id) {
+    const b = MOR.BONUSES[id];
+    const c = el('span', 'bonus');
+    if (!b) { c.textContent = id; return c; }
+    c.style.background = b.color;
+    c.title = b.name;
+    c.textContent = b.label;
+    return c;
+  }
+
   function chip(color, cls) {
     const el = document.createElement('span');
     el.className = 'chip' + (cls ? ' ' + cls : '');
@@ -77,6 +119,17 @@
       $('btn-bracket-go').addEventListener('click', () => this.bracketGo());
       $('btn-again').addEventListener('click', () => this.newTournament());
       $('btn-results-menu').addEventListener('click', () => this.toMenu());
+      $('btn-history').addEventListener('click', () => this.showHistory());
+      $('btn-results-history').addEventListener('click', () => this.showHistory());
+      $('btn-history-close').addEventListener('click', () => this.closeHistory());
+      $('btn-history-clear').addEventListener('click', () => { this.show('clear-confirm', true); $('btn-history-clear').hidden = true; });
+      $('btn-clear-no').addEventListener('click', () => { this.show('clear-confirm', false); $('btn-history-clear').hidden = false; });
+      $('btn-clear-yes').addEventListener('click', () => {
+        saveHistory([]);
+        this.show('clear-confirm', false);
+        $('btn-history-clear').hidden = false;
+        this.renderHistory();
+      });
       // Leaving the app (or tab) pauses a running match.
       document.addEventListener('visibilitychange', () => {
         if (document.hidden && !this.paused && ['draw', 'round', 'final'].indexOf(this.stage) >= 0) this.togglePause(true);
@@ -142,6 +195,7 @@
       this.show('bracket', false);
       this.show('results', false);
       this.show('pause', false);
+      this.show('history', false);
       $('stage').textContent = 'Multiply or Release';
       $('timer').textContent = '';
     }
@@ -154,10 +208,13 @@
 
     newTournament() {
       MOR.Sound.resume();
-      this.rng = MOR.makeRng(this.seed);
+      const seed = this.seed;
+      this.rng = MOR.makeRng(seed);
       this.seed = (this.seed * 1664525 + 1013904223) >>> 0; // next tournament gets a new seed
       const colors = this.rng.shuffle(MOR.COLORS.slice());
-      this.T = { colors, groups: null, rounds: [], final: null };
+      // Five random spinner bonuses for this whole tournament.
+      const bonuses = this.rng.shuffle(MOR.BONUS_IDS.slice()).slice(0, MOR.WHEEL_SIZE);
+      this.T = { seed, colors, bonuses, groups: null, rounds: [], final: null, saved: false };
       this.stage = 'draw';
       this.paused = false;
       this.countdown = null;
@@ -165,6 +222,7 @@
       this.show('bracket', false);
       this.show('results', false);
       this.show('pause', false);
+      this.show('history', false);
       this.scene = new MOR.DrawScene(this, colors, this.rng);
       $('stage').textContent = 'Жеребьёвка';
       try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) { /* not supported */ }
@@ -224,6 +282,14 @@
         }
       }
       wrap.appendChild(fin);
+      const bon = $('bracket-bonuses');
+      bon.textContent = '';
+      T.bonuses.forEach((id) => {
+        const row = el('span', 'bonus-row');
+        row.appendChild(bonusChip(id));
+        row.appendChild(el('span', 'bonus-name', MOR.BONUSES[id].name));
+        bon.appendChild(row);
+      });
       $('bracket-title').textContent = next === 0 ? 'Группы сформированы' : next === 4 ? 'Финалисты определены' : 'Раунд ' + next + ' завершён';
       this.countdown = this.auto ? 0 : 6;
       this.updateBracketButton();
@@ -245,11 +311,11 @@
       const n = this.nextRound;
       if (n < 4) {
         this.stage = 'round';
-        this.scene = new MOR.Battle(this, this.T.groups[n], { title: 'РАУНД ' + (n + 1) }, this.rng);
+        this.scene = new MOR.Battle(this, this.T.groups[n], { title: 'РАУНД ' + (n + 1), bonuses: this.T.bonuses }, this.rng);
       } else {
         this.stage = 'final';
         const finalists = this.T.rounds.map((r) => r.order[3]);
-        this.scene = new MOR.Battle(this, finalists, { title: 'ФИНАЛ', isFinal: true }, this.rng);
+        this.scene = new MOR.Battle(this, finalists, { title: 'ФИНАЛ', isFinal: true, bonuses: this.T.bonuses }, this.rng);
       }
     }
 
@@ -311,6 +377,114 @@
       $('stage').textContent = 'Итоги турнира';
       $('timer').textContent = '';
       MOR.Sound.play('win');
+      if (!this.T.saved) {
+        this.T.saved = true;
+        const list = loadHistory();
+        list.unshift({
+          ts: Date.now(),
+          seed: this.T.seed,
+          bonuses: this.T.bonuses,
+          top: rows.map((r) => r.color.id),
+          rounds: this.T.rounds.map((r) => Math.round(r.duration)),
+          final: Math.round(this.T.final.duration)
+        });
+        saveHistory(list);
+      }
+    }
+
+    // ------------------------------------------------------------ history
+    showHistory() {
+      this.historyFrom = this.stage === 'results' ? 'results' : 'menu';
+      this.show('menu', false);
+      this.show('results', false);
+      this.show('clear-confirm', false);
+      $('btn-history-clear').hidden = false;
+      this.renderHistory();
+      this.show('history', true);
+      $('history').scrollTop = 0;
+    }
+
+    closeHistory() {
+      this.show('history', false);
+      this.show(this.historyFrom || 'menu', true);
+    }
+
+    renderHistory() {
+      const list = loadHistory();
+      const empty = list.length === 0;
+      this.show('history-empty', empty);
+      this.show('history-body', !empty);
+      $('history-count').textContent = empty ? '' : list.length + ' ' + plural(list.length, 'турнир', 'турнира', 'турниров');
+      if (empty) return;
+
+      // Hall of fame: medals per colour over all saved tournaments.
+      const fame = {};
+      list.forEach((e) => e.top.forEach((id, i) => {
+        const f = fame[id] || (fame[id] = { id, m: [0, 0, 0], finals: 0 });
+        if (i < 3) f.m[i]++;
+        if (i < 4) f.finals++;
+      }));
+      const rows = Object.keys(fame).map((k) => fame[k]).filter((f) => f.finals > 0);
+      rows.sort((a, b) => (b.m[0] - a.m[0]) || (b.m[1] - a.m[1]) || (b.m[2] - a.m[2]) || (b.finals - a.finals));
+      const fameEl = $('fame');
+      fameEl.textContent = '';
+      rows.forEach((f, i) => {
+        const c = colorById(f.id);
+        const li = el('li');
+        li.appendChild(el('span', 'pl', String(i + 1)));
+        const sw = el('i');
+        sw.style.background = c.hex;
+        li.appendChild(sw);
+        li.appendChild(el('span', 'nm', c.name));
+        const medals = el('span', 'medals');
+        ['g', 's', 'b'].forEach((k, j) => {
+          const m = el('span', 'medal ' + k, String(f.m[j]));
+          m.title = (j + 1) + '-е места';
+          medals.appendChild(m);
+        });
+        medals.appendChild(el('span', 'finals', 'финалов: ' + f.finals));
+        li.appendChild(medals);
+        fameEl.appendChild(li);
+      });
+
+      // Every tournament, newest first.
+      const box = $('history-list');
+      box.textContent = '';
+      list.forEach((e, idx) => {
+        const card = el('article', 'entry');
+        const head = el('header');
+        head.appendChild(el('span', 'date', fmtDate(e.ts)));
+        head.appendChild(el('span', 'num', '№' + (list.length - idx)));
+        card.appendChild(head);
+        const podium = el('div', 'entry-top');
+        e.top.slice(0, 4).forEach((id, i) => {
+          const c = colorById(id);
+          const ch = chip(c, i === 0 ? 'champ' : '');
+          ch.insertBefore(el('b', 'place', String(i + 1)), ch.firstChild);
+          podium.appendChild(ch);
+        });
+        card.appendChild(podium);
+        if (Array.isArray(e.bonuses) && e.bonuses.length) {
+          const bon = el('div', 'entry-bonuses');
+          e.bonuses.forEach((id) => bon.appendChild(bonusChip(id)));
+          card.appendChild(bon);
+        }
+        const det = el('details');
+        det.appendChild(el('summary', null, 'Все ' + e.top.length + ' мест'));
+        const ol = el('ol', 'mini');
+        e.top.forEach((id) => {
+          const c = colorById(id);
+          const li = el('li');
+          const sw = el('i');
+          sw.style.background = c.hex;
+          li.appendChild(sw);
+          li.appendChild(document.createTextNode(c.name));
+          ol.appendChild(li);
+        });
+        det.appendChild(ol);
+        card.appendChild(det);
+        box.appendChild(card);
+      });
     }
 
     // ------------------------------------------------------------ loop
@@ -353,6 +527,7 @@
 
     // Android back button: returns true when handled.
     onBack() {
+      if (!$('history').hidden) { this.closeHistory(); return true; }
       if (this.stage === 'menu') return false;
       if (this.paused) this.togglePause(false); else this.togglePause(true);
       return true;
@@ -388,6 +563,8 @@
         if (g.T.final) out.final = { winner: g.T.final.order[3].name, duration: g.T.final.duration };
       }
       if (g.lastStandings && g.stage === 'results') out.standings = g.lastStandings.map((r) => r.place + '. ' + r.color.name);
+      if (g.T) out.bonuses = g.T.bonuses;
+      out.history = loadHistory().length;
       return out;
     }
   };

@@ -66,6 +66,18 @@
     return true;
   };
 
+  // Solid axis-aligned block. A centre already inside is pushed out through the top.
+  P.rect = function (b, x0, y0, x1, y1, e, fr) {
+    const cx = b.x < x0 ? x0 : b.x > x1 ? x1 : b.x;
+    const cy = b.y < y0 ? y0 : b.y > y1 ? y1 : b.y;
+    if (cx === b.x && cy === b.y) {
+      b.y = y0 - b.r;
+      if (b.vy > 0) b.vy = -b.vy * e;
+      return true;
+    }
+    return P.circle(b, cx, cy, 0, e, fr, 0, 0);
+  };
+
   P.limit = function (b, max) {
     const s2 = b.vx * b.vx + b.vy * b.vy;
     if (s2 > max * max) {

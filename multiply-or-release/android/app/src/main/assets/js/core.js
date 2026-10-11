@@ -81,6 +81,9 @@
     c.dark = MOR.mix(c.rgb, [8, 10, 18], 0.45);
   });
 
+  // Colour of the temporary golden marble (spinner bonus).
+  MOR.GOLD_COLOR = { id: 'gold', name: 'Золотой', hex: '#ffcf3a', rgb: [255, 207, 58], light: true };
+
   MOR.clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
   MOR.lerp = (a, b, t) => a + (b - a) * t;
   MOR.easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
@@ -206,7 +209,9 @@
         case 'win': if (this.ok('win', 0.5)) { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.35, 'triangle', 0.1, null, i * 0.12)); } break;
         case 'drop': if (this.ok('drop', 0.05)) this.tone(700 + Math.random() * 300, 0.05, 'sine', 0.05); break;
         case 'land': if (this.ok('land', 0.05)) this.tone(240, 0.09, 'triangle', 0.08, 180); break;
-        case 'fist': if (this.ok('fist', 0.3)) { this.noise(0.35, 0.3, 300); this.tone(90, 0.35, 'sine', 0.2, 40); } break;
+        case 'boom': if (this.ok('boom', 0.25)) { this.noise(0.35, 0.3, 300); this.tone(90, 0.35, 'sine', 0.2, 40); } break;
+        case 'zap': if (this.ok('zap', 0.08)) { this.noise(0.12, 0.18, 4000); this.tone(1800, 0.1, 'sawtooth', 0.05, 300); } break;
+        case 'freeze': if (this.ok('freeze', 0.3)) { this.tone(1500, 0.35, 'sine', 0.06, 2600); this.tone(2200, 0.3, 'sine', 0.04, 3200, 0.08); } break;
         case 'shield': if (this.ok('shield', 0.3)) this.tone(880, 0.4, 'sine', 0.08, 1760); break;
         case 'marble': if (this.ok('marble', 0.3)) { this.tone(990, 0.08, 'sine', 0.07); this.tone(1320, 0.1, 'sine', 0.07, null, 0.08); } break;
       }

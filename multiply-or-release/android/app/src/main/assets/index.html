@@ -216,8 +216,72 @@
     .overlay { padding-top: calc(env(safe-area-inset-top, 0px) + 54px); }
     .card { padding: 16px 18px; gap: 10px; }
     h1 { font-size: 34px; }
+    h2 { font-size: 20px; }
     .menu-card .lead { font-size: 14px; }
+    .group { padding: 8px 10px; gap: 4px; }
+    .chip { font-size: 13px; }
+    .bonus-row { font-size: 13px; }
   }
+  /* ---------- bonuses */
+  .bonus-set { display: grid; gap: 8px; }
+  .bonus-set h3, h3.sub { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .bonus-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px 12px; }
+  .bonus-row { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 14px; }
+  .bonus-name { min-width: 0; }
+  .bonus {
+    flex: none;
+    display: inline-block;
+    min-width: 54px;
+    padding: 3px 7px;
+    border-radius: 6px;
+    font: 11px var(--display);
+    color: #fff;
+    text-align: center;
+    letter-spacing: 0.02em;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  }
+
+  /* ---------- history */
+  .head-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  button.small { width: auto; padding: 10px 14px; font-size: 14px; }
+  .hint { margin: 0; color: var(--muted); font-size: 13px; }
+  .medal {
+    display: inline-grid;
+    place-items: center;
+    min-width: 24px;
+    height: 22px;
+    padding: 0 6px;
+    border-radius: 11px;
+    font: 12px var(--display);
+    color: #1a1405;
+    font-variant-numeric: tabular-nums;
+  }
+  .medal.g { background: #ffcf3a; }
+  .medal.s { background: #cfd6e6; }
+  .medal.b { background: #d9965b; }
+  .fame li { grid-template-columns: 30px 16px 1fr; }
+  .fame .medals { grid-column: 3; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .fame .finals { color: var(--muted); font-size: 12.5px; margin-left: 4px; }
+  .history-list { display: grid; gap: 10px; }
+  .entry { background: var(--panel-2); border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
+  .entry header { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 13px; }
+  .entry .num { font-family: var(--display); color: var(--gold); }
+  .entry-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px 12px; }
+  .entry-top .place { font: 13px var(--display); color: var(--muted); min-width: 12px; }
+  .entry-top .chip.champ { color: var(--gold); font-weight: 700; }
+  .entry-top .chip.champ .place { color: var(--gold); }
+  .entry-bonuses { display: flex; flex-wrap: wrap; gap: 4px; }
+  .entry details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .mini { margin: 8px 0 0; padding-left: 26px; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 4px 12px; font-size: 13px; }
+  .mini li { padding-left: 2px; }
+  .mini i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: 0; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35); }
+  .confirm { display: grid; gap: 10px; padding: 12px; border-radius: 12px; border: 1px solid #ff6b6b; background: rgba(255, 77, 94, 0.08); }
+  button.danger { background: #ff4d5e; color: #fff; }
+  @media (min-width: 560px) {
+    .fame li { grid-template-columns: 30px 16px minmax(110px, 1fr) auto; }
+    .fame .medals { grid-column: 4; justify-content: flex-end; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     button.primary:active { transform: none; }
   }
@@ -254,11 +318,11 @@
     <p class="lead">Шарики падают сквозь поднимающиеся препятствия и решают судьбу своего цвета. Последний цвет на поле побеждает.</p>
     <div class="slots" aria-hidden="true"><span class="s-x2">x2</span><span class="s-spin">★</span><span class="s-rel">ВЫПУСК</span></div>
     <button type="button" id="btn-start" class="primary">Начать турнир</button>
+    <button type="button" id="btn-history" class="secondary">История турниров</button>
     <ul class="rules">
       <li><b>Жеребьёвка:</b> 16 шариков падают в 4 колбы. Колба слева направо — раунды 1–4.</li>
-      <li><b>x2</b> удваивает число шариков, <b>выпуск</b> стреляет ими из пушки, <b>спиннер</b> крутит рулетку.</li>
-      <li><b>Рулетка:</b> +200, x4 на 45 сек, щит, кластерная пушка, Half Land, кулак.</li>
-      <li>Каждые 40 секунд у всех добавляется шарик, максимум 3.</li>
+      <li>В каждом поле падают 3 шарика: <b>x2</b> удваивает число, <b>выпуск</b> стреляет им из пушки, <b>спиннер</b> крутит рулетку.</li>
+      <li><b>Рулетка:</b> в каждом турнире 5 случайных бонусов из 15.</li>
       <li>Победители четырёх раундов играют финал.</li>
     </ul>
   </div>
@@ -269,6 +333,10 @@
     <p class="eyebrow">Турнирная сетка</p>
     <h2 id="bracket-title">Группы сформированы</h2>
     <div id="bracket-groups" class="groups"></div>
+    <div class="bonus-set">
+      <h3>Бонусы спиннера в этом турнире</h3>
+      <div id="bracket-bonuses" class="bonus-list"></div>
+    </div>
     <button type="button" id="btn-bracket-go" class="primary">Начать раунд 1</button>
   </div>
 </section>
@@ -281,7 +349,37 @@
     <ol id="standings" class="standings"></ol>
     <div class="row">
       <button type="button" id="btn-again" class="primary">Новый турнир</button>
+      <button type="button" id="btn-results-history" class="secondary">История</button>
       <button type="button" id="btn-results-menu" class="secondary">В меню</button>
+    </div>
+  </div>
+</section>
+
+<section id="history" class="overlay" hidden aria-labelledby="history-title">
+  <div class="card wide">
+    <div class="head-row">
+      <div>
+        <p class="eyebrow">История турниров</p>
+        <h2 id="history-title">Результаты</h2>
+      </div>
+      <button type="button" id="btn-history-close" class="secondary small">Назад</button>
+    </div>
+    <p id="history-count" class="lead"></p>
+    <p id="history-empty" class="lead">Здесь появятся сыгранные турниры: дата, чемпион и все 16 мест. Сыграйте первый турнир.</p>
+    <div id="history-body" class="col">
+      <h3 class="sub">Зал славы</h3>
+      <p class="hint">Медали цвета: <span class="medal g">1</span> <span class="medal s">2</span> <span class="medal b">3</span> место.</p>
+      <ol id="fame" class="standings fame"></ol>
+      <h3 class="sub">Все турниры</h3>
+      <div id="history-list" class="history-list"></div>
+      <button type="button" id="btn-history-clear" class="secondary">Очистить историю</button>
+      <div id="clear-confirm" class="confirm" hidden>
+        <span>Удалить все записи истории?</span>
+        <div class="row">
+          <button type="button" id="btn-clear-yes" class="primary danger">Удалить</button>
+          <button type="button" id="btn-clear-no" class="secondary">Отмена</button>
+        </div>
+      </div>
     </div>
   </div>
 </section>
