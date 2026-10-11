@@ -62,6 +62,97 @@
     return c;
   }
 
+  // ---- Bracket tree: the 16 colours in their round groups on the left, each group
+  // bracket feeds its round winner, the four winners meet in the final and the
+  // champion gets the crown.
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, attrs, text) {
+    const e = document.createElementNS(SVG_NS, tag);
+    Object.keys(attrs || {}).forEach((k) => e.setAttribute(k, attrs[k]));
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function bracketSvg(groups, top) {
+    const place = {};
+    top.forEach((id, i) => { place[id] = i + 1; });
+    const champ = top[0];
+    const ROW = 22, GAP = 12, PAD = 14, W = 352;
+    const H = PAD + groups.length * 4 * ROW + (groups.length - 1) * GAP + 8;
+    const LEAF_END = 122, G_X = 130, WIN_X = 140, WIN_END = 250, FIN_X = 258, CH_X = 268;
+    const GOLD = '#ffcf3a';
+    // Path colour: very dark colours are lifted so they stay visible on the dark card.
+    const pathColor = (id) => {
+      const c = colorById(id);
+      return c.rgb && c.lum < 0.03 ? MOR.mix(c.rgb, [255, 255, 255], 0.45) : c.hex;
+    };
+    const svg = svgEl('svg', {
+      viewBox: '0 0 ' + W + ' ' + H, class: 'bracket-tree', role: 'img',
+      'aria-label': 'Турнирная сетка, чемпион: ' + colorById(champ).name
+    });
+    const line = (x1, y1, x2, y2, color, width) => {
+      const l = svgEl('line', { x1, y1, x2, y2, class: 'ln' });
+      if (color) { l.style.stroke = color; l.style.strokeWidth = width || 2.4; }
+      svg.appendChild(l);
+    };
+    // A colour written on its bracket line: dot, name and final place.
+    const slot = (x, xEnd, y, id, cls, showPlace) => {
+      const c = colorById(id);
+      svg.appendChild(svgEl('circle', { cx: x + 6, cy: y - 7.5, r: 4.5, fill: c.hex, class: 'dot' }));
+      svg.appendChild(svgEl('text', { x: x + 15, y: y - 4, class: cls }, c.name));
+      if (showPlace) svg.appendChild(svgEl('text', { x: xEnd - 1, y: y - 4, class: 'pl', 'text-anchor': 'end' }, String(place[id] || '')));
+    };
+
+    const winners = [];
+    let y = PAD;
+    groups.forEach((g, gi) => {
+      const winner = g.slice().sort((a, b) => (place[a] || 99) - (place[b] || 99))[0];
+      const ys = g.map((id) => {
+        const ly = y + ROW - 4;
+        y += ROW;
+        const won = id === winner;
+        line(0, ly, LEAF_END, ly, won ? pathColor(id) : null, 2);
+        slot(0, LEAF_END, ly, id, won ? 'win' : 'out', true);
+        line(LEAF_END, ly, G_X, ly);
+        return ly;
+      });
+      const mid = (ys[0] + ys[ys.length - 1]) / 2;
+      line(G_X, ys[0], G_X, ys[ys.length - 1]);
+      // The winner's path out of the group, in its colour.
+      const wy = ys[g.indexOf(winner)], wc = pathColor(winner);
+      line(LEAF_END, wy, G_X, wy, wc);
+      line(G_X, wy, G_X, mid, wc);
+      line(G_X, mid, WIN_X, mid, wc);
+      winners.push({ id: winner, y: mid, round: gi });
+      y += GAP;
+    });
+
+    winners.forEach((w) => {
+      svg.appendChild(svgEl('text', { x: WIN_X, y: w.y - 17, class: 'lbl' }, 'ПОБЕДИТЕЛЬ Р' + (w.round + 1)));
+      line(WIN_X, w.y, WIN_END, w.y, pathColor(w.id));
+      slot(WIN_X, WIN_END, w.y, w.id, w.id === champ ? 'win champ' : 'win', true);
+      line(WIN_END, w.y, FIN_X, w.y);
+    });
+    const f0 = winners[0].y, f1 = winners[winners.length - 1].y, fm = (f0 + f1) / 2;
+    line(FIN_X, f0, FIN_X, f1);
+    const cw = winners.find((w) => w.id === champ);
+    if (cw) {
+      line(WIN_END, cw.y, FIN_X, cw.y, GOLD);
+      line(FIN_X, cw.y, FIN_X, fm, GOLD);
+    }
+    svg.appendChild(svgEl('text', { x: FIN_X + 4, y: f0 - 17, class: 'lbl' }, 'ФИНАЛ'));
+    // The final's line runs into the crown; #1 and the champion sit under it.
+    const cx = CH_X + 42;
+    line(FIN_X, fm, cx - 24, fm, GOLD, 2.8);
+    svg.appendChild(svgEl('path', {
+      class: 'crown',
+      d: 'M' + (cx - 21) + ' ' + (fm + 10) + ' l0 -20 l10.5 9 l10.5 -15 l10.5 15 l10.5 -9 l0 20 z'
+    }));
+    svg.appendChild(svgEl('text', { x: cx, y: fm + 30, class: 'one', 'text-anchor': 'middle' }, '#1'));
+    svg.appendChild(svgEl('text', { x: cx, y: fm + 48, class: 'win champ', 'text-anchor': 'middle' }, colorById(champ).name));
+    line(cx - 38, fm + 54, cx + 38, fm + 54, pathColor(champ), 3);
+    return svg;
+  }
+
   function chip(color, cls) {
     const el = document.createElement('span');
     el.className = 'chip' + (cls ? ' ' + cls : '');
@@ -85,6 +176,7 @@
       this.acc = 0;
       this.last = performance.now();
       this.auto = false; // debug: skip countdowns
+      this.view = storeGet('mor.view') === 'tree' ? 'tree' : 'top'; // results shown as top list or bracket
 
       this.canvas = $('cv');
       this.ctx = this.canvas.getContext('2d');
@@ -119,6 +211,9 @@
       $('btn-bracket-go').addEventListener('click', () => this.bracketGo());
       $('btn-again').addEventListener('click', () => this.newTournament());
       $('btn-results-menu').addEventListener('click', () => this.toMenu());
+      document.querySelectorAll('[data-view]').forEach((b) => {
+        b.addEventListener('click', () => this.setView(b.dataset.view));
+      });
       $('btn-history').addEventListener('click', () => this.showHistory());
       $('btn-results-history').addEventListener('click', () => this.showHistory());
       $('btn-history-close').addEventListener('click', () => this.closeHistory());
@@ -145,6 +240,27 @@
     }
 
     show(id, on) { $(id).hidden = !on; }
+
+    // Results view: 'top' (podium + list) or 'tree' (bracket). Shared by the
+    // results screen and the history, remembered between sessions.
+    setView(v) {
+      this.view = v === 'tree' ? 'tree' : 'top';
+      storeSet('mor.view', this.view);
+      this.applyView();
+      if (!$('history').hidden) this.renderHistory();
+    }
+
+    applyView() {
+      document.querySelectorAll('[data-view]').forEach((b) => {
+        const on = b.dataset.view === this.view;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      const tree = this.view === 'tree';
+      this.show('results-top', !tree);
+      this.show('results-tree', tree);
+      $('results-title').textContent = tree ? 'Турнирная сетка' : 'Топ цветов';
+    }
 
     setSpeed(s) {
       this.speed = MOR.clamp(s, 1, 3);
@@ -373,6 +489,10 @@
         li.appendChild(pl); li.appendChild(sw); li.appendChild(nm); li.appendChild(info);
         list.appendChild(li);
       });
+      const tree = $('results-tree');
+      tree.textContent = '';
+      tree.appendChild(bracketSvg(this.T.groups.map((g) => g.map((c) => c.id)), rows.map((r) => r.color.id)));
+      this.applyView();
       this.show('results', true);
       $('stage').textContent = 'Итоги турнира';
       $('timer').textContent = '';
@@ -385,6 +505,7 @@
           seed: this.T.seed,
           bonuses: this.T.bonuses,
           top: rows.map((r) => r.color.id),
+          groups: this.T.groups.map((g) => g.map((c) => c.id)),
           rounds: this.T.rounds.map((r) => Math.round(r.duration)),
           final: Math.round(this.T.final.duration)
         });
@@ -400,6 +521,7 @@
       this.show('clear-confirm', false);
       $('btn-history-clear').hidden = false;
       this.renderHistory();
+      this.applyView();
       this.show('history', true);
       $('history').scrollTop = 0;
     }
@@ -456,6 +578,20 @@
         head.appendChild(el('span', 'date', fmtDate(e.ts)));
         head.appendChild(el('span', 'num', '№' + (list.length - idx)));
         card.appendChild(head);
+        if (Array.isArray(e.bonuses) && e.bonuses.length) {
+          const bon = el('div', 'entry-bonuses');
+          e.bonuses.forEach((id) => bon.appendChild(bonusChip(id)));
+          card.appendChild(bon);
+        }
+        const hasTree = Array.isArray(e.groups) && e.groups.length === 4 && e.groups.every((g) => Array.isArray(g) && g.length === 4);
+        if (this.view === 'tree' && hasTree) {
+          const wrap = el('div', 'tree-wrap');
+          wrap.appendChild(bracketSvg(e.groups, e.top));
+          card.appendChild(wrap);
+          box.appendChild(card);
+          return;
+        }
+        if (this.view === 'tree') card.appendChild(el('p', 'hint', 'Для этого турнира сетка не сохранилась, показан топ.'));
         const podium = el('div', 'entry-top');
         e.top.slice(0, 4).forEach((id, i) => {
           const c = colorById(id);
@@ -464,11 +600,6 @@
           podium.appendChild(ch);
         });
         card.appendChild(podium);
-        if (Array.isArray(e.bonuses) && e.bonuses.length) {
-          const bon = el('div', 'entry-bonuses');
-          e.bonuses.forEach((id) => bon.appendChild(bonusChip(id)));
-          card.appendChild(bon);
-        }
         const det = el('details');
         det.appendChild(el('summary', null, 'Все ' + e.top.length + ' мест'));
         const ol = el('ol', 'mini');

@@ -221,7 +221,35 @@
     .group { padding: 8px 10px; gap: 4px; }
     .chip { font-size: 13px; }
     .bonus-row { font-size: 13px; }
+    .bracket-tree { max-width: 460px; }
   }
+  /* ---------- results view toggle + bracket tree */
+  .head-row h2, .head-row h3 { align-self: center; }
+  .seg { display: inline-flex; flex: none; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button {
+    appearance: none;
+    border: 0;
+    background: var(--panel-2);
+    color: var(--muted);
+    font: 14px var(--display);
+    padding: 8px 14px;
+    cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--gold); color: var(--gold-ink); }
+  .tree-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .bracket-tree { display: block; width: 100%; max-width: 620px; height: auto; margin: 0 auto; }
+  .bracket-tree .ln { stroke: #3a4366; stroke-width: 1.6; stroke-linecap: round; fill: none; }
+  .bracket-tree text { font-family: var(--body); font-size: 12px; fill: var(--fg); }
+  .bracket-tree text.out { fill: var(--muted); }
+  .bracket-tree text.win { font-weight: 700; }
+  .bracket-tree text.champ { fill: var(--gold); }
+  .bracket-tree text.pl { font-size: 10px; font-weight: 400; fill: var(--muted); font-variant-numeric: tabular-nums; }
+  .bracket-tree text.lbl { font-family: var(--display); font-size: 8px; letter-spacing: 0.08em; fill: var(--muted); }
+  .bracket-tree text.one { font-family: var(--display); font-size: 15px; fill: var(--gold); }
+  .bracket-tree .dot { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
+  .bracket-tree .crown { fill: var(--gold); stroke: #1a1405; stroke-width: 1.4; stroke-linejoin: round; }
+
   /* ---------- bonuses */
   .bonus-set { display: grid; gap: 8px; }
   .bonus-set h3, h3.sub { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
@@ -242,7 +270,7 @@
   }
 
   /* ---------- history */
-  .head-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .head-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px 12px; }
   button.small { width: auto; padding: 10px 14px; font-size: 14px; }
   .hint { margin: 0; color: var(--muted); font-size: 13px; }
   .medal {
@@ -344,9 +372,18 @@
 <section id="results" class="overlay" hidden aria-labelledby="results-title">
   <div class="card wide">
     <p class="eyebrow">Итоги турнира</p>
-    <h2 id="results-title">Топ цветов</h2>
-    <div id="podium" class="podium"></div>
-    <ol id="standings" class="standings"></ol>
+    <div class="head-row">
+      <h2 id="results-title">Топ цветов</h2>
+      <div class="seg" role="group" aria-label="Вид результатов">
+        <button type="button" id="results-view-top" data-view="top">Топ</button>
+        <button type="button" id="results-view-tree" data-view="tree">Сетка</button>
+      </div>
+    </div>
+    <div id="results-top" class="col">
+      <div id="podium" class="podium"></div>
+      <ol id="standings" class="standings"></ol>
+    </div>
+    <div id="results-tree" class="tree-wrap" hidden></div>
     <div class="row">
       <button type="button" id="btn-again" class="primary">Новый турнир</button>
       <button type="button" id="btn-results-history" class="secondary">История</button>
@@ -370,7 +407,13 @@
       <h3 class="sub">Зал славы</h3>
       <p class="hint">Медали цвета: <span class="medal g">1</span> <span class="medal s">2</span> <span class="medal b">3</span> место.</p>
       <ol id="fame" class="standings fame"></ol>
-      <h3 class="sub">Все турниры</h3>
+      <div class="head-row">
+        <h3 class="sub">Все турниры</h3>
+        <div class="seg" role="group" aria-label="Вид результатов">
+          <button type="button" id="history-view-top" data-view="top">Топ</button>
+          <button type="button" id="history-view-tree" data-view="tree">Сетка</button>
+        </div>
+      </div>
       <div id="history-list" class="history-list"></div>
       <button type="button" id="btn-history-clear" class="secondary">Очистить историю</button>
       <div id="clear-confirm" class="confirm" hidden>
