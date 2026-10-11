@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e1a">
+<title>Multiply or Release</title>
+<style>
+  /* Arcade night: one dark visual world, gold = spinner/prize accent. */
+  @font-face {
+    font-family: "Russo One";
+    src: url("fonts/RussoOne-Regular.ttf") format("truetype");
+    font-display: swap;
+  }
+  :root {
+    --bg: #0b0e1a;
+    --panel: #141a2e;
+    --panel-2: #1b2340;
+    --line: #2b3458;
+    --fg: #eef1ff;
+    --muted: #98a0c4;
+    --gold: #ffcf3a;
+    --gold-ink: #1a1405;
+    --display: "Russo One", Roboto, "Segoe UI", system-ui, sans-serif;
+    --body: Roboto, "Segoe UI", system-ui, -apple-system, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.45 var(--body);
+    overflow: hidden;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  [hidden] { display: none !important; }
+  canvas#cv { position: fixed; top: 0; left: 0; display: block; }
+
+  /* ---------- HUD */
+  #hud {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;
+    background: linear-gradient(var(--bg) 70%, rgba(11, 14, 26, 0));
+  }
+  .stage-wrap { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  #stage {
+    font-family: var(--display);
+    font-size: 15px;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #timer { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 14px; }
+  .controls { display: flex; align-items: center; gap: 6px; flex: none; }
+  .speed { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .speed button, .icon {
+    appearance: none;
+    border: 0;
+    background: var(--panel);
+    color: var(--fg);
+    font: 14px var(--display);
+    height: 34px;
+    min-width: 40px;
+    padding: 0 8px;
+    cursor: pointer;
+  }
+  .speed button + button { border-left: 1px solid var(--line); }
+  .speed button.on { background: var(--gold); color: var(--gold-ink); }
+  .icon { border: 1px solid var(--line); border-radius: 10px; display: grid; place-items: center; }
+  .icon svg { width: 18px; height: 18px; fill: currentColor; }
+  .icon .muted-x { display: none; }
+  #btn-sound.off { color: var(--muted); }
+  #btn-sound.off .muted-x { display: inline; }
+  #btn-sound.off .wave { display: none; }
+  #btn-pause.on { background: var(--gold); color: var(--gold-ink); }
+  button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  /* ---------- overlays */
+  .overlay {
+    position: fixed;
+    top: 0; right: 0; bottom: 0; left: 0;
+    z-index: 5;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    overflow-y: auto;
+    padding: calc(env(safe-area-inset-top, 0px) + 60px) 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+    background: rgba(6, 8, 16, 0.72);
+  }
+  #menu { background: linear-gradient(rgba(6, 8, 16, 0.55), rgba(6, 8, 16, 0.85)); }
+  .card {
+    width: 100%;
+    max-width: 440px;
+    margin-block: auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 22px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  }
+  .card.wide { max-width: 760px; }
+  .card.small { max-width: 320px; }
+  .eyebrow {
+    margin: 0;
+    font: 12px var(--display);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+  h1, h2, h3 { margin: 0; font-family: var(--display); font-weight: 400; text-wrap: balance; }
+  h1 { font-size: 44px; font-size: clamp(36px, 11vw, 56px); line-height: 0.95; text-transform: uppercase; letter-spacing: 0.01em; }
+  h1 span { color: var(--gold); font-size: 0.6em; vertical-align: 0.12em; }
+  h2 { font-size: 24px; }
+  .lead { margin: 0; color: var(--muted); }
+  .lead b { color: var(--fg); font-weight: 600; }
+  .slots { display: grid; grid-template-columns: 3fr 1fr 3fr; border-radius: 10px; overflow: hidden; font: 13px var(--display); text-align: center; }
+  .slots span { padding: 8px 4px; color: #fff; }
+  .slots .s-x2 { background: #1f8a4c; }
+  .slots .s-spin { background: #c79a00; }
+  .slots .s-rel { background: #c0392b; }
+  .rules { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 6px; font-size: 14px; }
+  .rules b { color: var(--fg); font-weight: 600; }
+  button.primary, button.secondary {
+    appearance: none;
+    border: 0;
+    border-radius: 12px;
+    padding: 14px 20px;
+    font: 18px var(--display);
+    cursor: pointer;
+    width: 100%;
+  }
+  button.primary { background: var(--gold); color: var(--gold-ink); }
+  button.primary:active { transform: translateY(1px); filter: brightness(0.95); }
+  button.secondary { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 160px; }
+  .col { display: grid; gap: 10px; }
+
+  /* ---------- bracket */
+  .groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .group {
+    background: var(--panel-2);
+    border: 1px solid transparent;
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: grid;
+    gap: 6px;
+    align-content: start;
+  }
+  .group h3 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .group.current { border-color: var(--gold); }
+  .group.current h3 { color: var(--gold); }
+  .group.final { grid-column: 1 / -1; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  .group.final h3 { grid-column: 1 / -1; }
+  .chip { display: flex; align-items: center; gap: 8px; font-size: 14px; min-width: 0; }
+  .chip i { width: 14px; height: 14px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35); }
+  .chip.win { font-weight: 700; color: var(--gold); }
+  .chip.win::after { content: "★"; margin-left: auto; }
+  .chip.out { opacity: 0.45; }
+  .chip.empty { color: var(--muted); font-style: italic; font-size: 13px; }
+
+  /* ---------- results */
+  .podium { display: flex; justify-content: center; align-items: flex-end; gap: 10px; padding-top: 6px; }
+  .step { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 31%; max-width: 150px; min-width: 0; }
+  .step i { width: 38px; height: 38px; border-radius: 50%; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 6px 14px rgba(0, 0, 0, 0.4); }
+  .step b { font-size: 14px; text-align: center; overflow-wrap: anywhere; }
+  .step .block {
+    width: 100%;
+    display: grid;
+    place-items: center;
+    font: 26px var(--display);
+    border-radius: 10px 10px 4px 4px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+  }
+  .step.p1 .block { height: 96px; background: var(--gold); color: var(--gold-ink); border-color: var(--gold); }
+  .step.p2 .block { height: 72px; }
+  .step.p3 .block { height: 56px; }
+  .step.p1 i { width: 48px; height: 48px; }
+  .standings { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .standings li {
+    display: grid;
+    grid-template-columns: 30px 16px 1fr;
+    column-gap: 10px;
+    align-items: center;
+    padding: 7px 10px;
+    border-radius: 10px;
+    background: var(--panel-2);
+  }
+  .standings li:nth-child(-n+3) { background: #262c4a; }
+  .standings .pl { font: 16px var(--display); color: var(--gold); font-variant-numeric: tabular-nums; text-align: right; }
+  .standings i { width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35); }
+  .standings .nm { font-weight: 600; min-width: 0; }
+  .standings .info { grid-column: 3; color: var(--muted); font-size: 12.5px; }
+
+  @media (min-width: 560px) {
+    .standings li { grid-template-columns: 30px 16px minmax(110px, 1fr) auto; }
+    .standings .info { grid-column: 4; text-align: right; }
+  }
+  @media (max-height: 520px) {
+    .overlay { padding-top: calc(env(safe-area-inset-top, 0px) + 54px); }
+    .card { padding: 16px 18px; gap: 10px; }
+    h1 { font-size: 34px; }
+    .menu-card .lead { font-size: 14px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    button.primary:active { transform: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="cv" aria-label="Игровое поле"></canvas>
+
+<header id="hud">
+  <div class="stage-wrap"><span id="stage">Multiply or Release</span><span id="timer"></span></div>
+  <div class="controls">
+    <div class="speed" role="group" aria-label="Скорость игры">
+      <button type="button" id="speed-1" data-speed="1">x1</button>
+      <button type="button" id="speed-2" data-speed="2">x2</button>
+      <button type="button" id="speed-3" data-speed="3">x3</button>
+    </div>
+    <button type="button" id="btn-pause" class="icon" aria-label="Пауза">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+    </button>
+    <button type="button" id="btn-sound" class="icon" aria-label="Выключить звук">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 9h4l5-4v14l-5-4H4z"/>
+        <path class="wave" d="M16 8.5a5 5 0 0 1 0 7l-1.2-1.2a3.3 3.3 0 0 0 0-4.6zM18.6 6a8.6 8.6 0 0 1 0 12l-1.2-1.2a6.9 6.9 0 0 0 0-9.6z"/>
+        <path class="muted-x" d="M15.5 9.2l1.2-1.2 2.3 2.3 2.3-2.3 1.2 1.2-2.3 2.3 2.3 2.3-1.2 1.2-2.3-2.3-2.3 2.3-1.2-1.2 2.3-2.3z"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<section id="menu" class="overlay" aria-labelledby="menu-title">
+  <div class="card menu-card">
+    <p class="eyebrow">Турнир 16 цветов · спиннер</p>
+    <h1 id="menu-title">Multiply <span>or</span><br>Release</h1>
+    <p class="lead">Шарики падают сквозь поднимающиеся препятствия и решают судьбу своего цвета. Последний цвет на поле побеждает.</p>
+    <div class="slots" aria-hidden="true"><span class="s-x2">x2</span><span class="s-spin">★</span><span class="s-rel">ВЫПУСК</span></div>
+    <button type="button" id="btn-start" class="primary">Начать турнир</button>
+    <ul class="rules">
+      <li><b>Жеребьёвка:</b> 16 шариков падают в 4 колбы. Колба слева направо — раунды 1–4.</li>
+      <li><b>x2</b> удваивает число шариков, <b>выпуск</b> стреляет ими из пушки, <b>спиннер</b> крутит рулетку.</li>
+      <li><b>Рулетка:</b> +200, x4 на 45 сек, щит, кластерная пушка, Half Land, кулак.</li>
+      <li>Каждые 40 секунд у всех добавляется шарик, максимум 3.</li>
+      <li>Победители четырёх раундов играют финал.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="bracket" class="overlay" hidden aria-labelledby="bracket-title">
+  <div class="card wide">
+    <p class="eyebrow">Турнирная сетка</p>
+    <h2 id="bracket-title">Группы сформированы</h2>
+    <div id="bracket-groups" class="groups"></div>
+    <button type="button" id="btn-bracket-go" class="primary">Начать раунд 1</button>
+  </div>
+</section>
+
+<section id="results" class="overlay" hidden aria-labelledby="results-title">
+  <div class="card wide">
+    <p class="eyebrow">Итоги турнира</p>
+    <h2 id="results-title">Топ цветов</h2>
+    <div id="podium" class="podium"></div>
+    <ol id="standings" class="standings"></ol>
+    <div class="row">
+      <button type="button" id="btn-again" class="primary">Новый турнир</button>
+      <button type="button" id="btn-results-menu" class="secondary">В меню</button>
+    </div>
+  </div>
+</section>
+
+<section id="pause" class="overlay" hidden aria-labelledby="pause-title">
+  <div class="card small">
+    <h2 id="pause-title">Пауза</h2>
+    <div class="col">
+      <button type="button" id="btn-resume" class="primary">Продолжить</button>
+      <button type="button" id="btn-restart" class="secondary">Новый турнир</button>
+      <button type="button" id="btn-menu" class="secondary">В меню</button>
+    </div>
+  </div>
+</section>
+
+<script src="js/core.js"></script>
+<script src="js/physics.js"></script>
+<script src="js/drawscene.js"></script>
+<script src="js/battle.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
