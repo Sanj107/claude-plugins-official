@@ -1,0 +1,52 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Model viewer</title>
+<style>body{margin:0;background:#7ec8f0;overflow:hidden}canvas{display:block}#l{position:fixed;left:6px;top:4px;font:14px sans-serif;color:#000}</style></head>
+<body><div id="l"></div>
+<script src="../android/app/src/main/assets/lib/three.min.js"></script>
+<script src="../android/app/src/main/assets/js/util.js"></script>
+<script src="../android/app/src/main/assets/js/data.js"></script>
+<script src="../android/app/src/main/assets/js/voxel.js"></script>
+<script src="../android/app/src/main/assets/js/models.js"></script>
+<script>
+// Debug page for the voxel art: renders a grid of models. ?set=ships|styles|creatures|buildings|props
+const q = new URLSearchParams(location.search);
+const set = q.get('set') || 'ships';
+const r = new THREE.WebGLRenderer({ antialias: true });
+r.setSize(innerWidth, innerHeight);
+document.body.appendChild(r.domElement);
+const sc = new THREE.Scene();
+sc.background = new THREE.Color(0x8fd3f5);
+sc.add(new THREE.HemisphereLight(0xdff3ff, 0x7a6a4a, 0.75));
+const sun = new THREE.DirectionalLight(0xfff2d6, 0.85); sun.position.set(-20, 40, 25); sc.add(sun);
+const cam = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 500);
+const items = [];
+const M = VC.Models, V = VC.Voxel;
+function add(vox, label, opts) { items.push({ vox, label, opts: opts || {} }); }
+if (set === 'ships') for (let t = 0; t <= 7; t++) add(M.ship({ tier: t, style: M.playerStyle({ sail: 'white', flag: 'roger', hull: 'oak' }) }).vox, 'T' + t);
+if (set === 'styles') for (const st of Object.keys(M.STYLES)) add(M.ship({ tier: 3, style: st }).vox, st);
+if (set === 'creatures') for (const k of Object.keys(M.CREATURES)) add(M.CREATURES[k]({}), k, { parts: true });
+if (set === 'buildings') for (const b of VC.BUILDINGS) add(M.building(b.id), b.id);
+if (set === 'props') { add(M.chest(), 'chest'); add(M.parrot(false), 'parrot'); add(M.parrot(true), 'gold'); add(M.bottle(), 'bottle'); add(M.boat(), 'boat'); add(M.palm(8, 3), 'palm'); }
+const cols = Math.ceil(Math.sqrt(items.length));
+const sp = set === 'ships' || set === 'styles' || set === 'creatures' ? 14 : 4;
+items.forEach((it, i) => {
+  const g = new THREE.Group();
+  if (it.opts.parts) {
+    for (const p of it.vox.parts) {
+      const m = V.toMesh(p.vox, { scale: 0.25, center: [0, 0, 0] });
+      m.position.set(p.pos[0] * 0.25, p.pos[1] * 0.25, p.pos[2] * 0.25);
+      if (p.rotY) m.rotation.y = p.rotY;
+      g.add(m);
+    }
+  } else g.add(V.toMesh(it.vox, { scale: 0.25, center: 'base' }));
+  g.position.set((i % cols - (cols - 1) / 2) * sp, 0, Math.floor(i / cols) * sp * 0.8);
+  g.rotation.y = +(q.get('rot') || -0.6);
+  sc.add(g);
+});
+document.getElementById('l').textContent = set + ': ' + items.map(i => i.label).join(', ');
+const rows = Math.ceil(items.length / cols);
+cam.position.set(0, sp * rows * 0.7, sp * rows * 0.8 + sp * 1.2);
+cam.lookAt(0, 0, (rows - 1) * sp * 0.4);
+r.render(sc, cam);
+window.done = true;
+</script></body></html>

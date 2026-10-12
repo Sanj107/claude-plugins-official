@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Воксельные Корсары</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="gl"></canvas>
+  <div id="fx"></div>
+
+  <div id="hud" class="hidden">
+    <div id="topbar">
+      <button id="cap-btn" class="cap" data-act="tab:captain">
+        <span class="ava" id="hud-ava">🏴‍☠️</span>
+        <span class="lvl" id="hud-lvl">1</span>
+        <span class="xpbar"><i id="hud-xp"></i></span>
+      </button>
+      <div class="gold">
+        <div class="row"><span class="coin"></span><b id="hud-gold">0</b></div>
+        <small id="hud-gps">0 / с</small>
+      </div>
+      <button class="pearls" data-act="tab:shop"><span>💎</span><b id="hud-pearls">0</b></button>
+      <button id="btn-settings" class="icon-btn" data-act="settings">⚙️</button>
+    </div>
+    <button id="objective" data-act="objective"></button>
+    <div id="boosts"></div>
+    <div id="side">
+      <button class="side-btn" id="btn-daily" data-act="daily">🎁<i class="dot hidden"></i></button>
+      <button class="side-btn" id="btn-quests" data-act="quests">📋<i class="dot hidden"></i></button>
+      <button class="side-btn hidden" id="btn-build" data-act="buildmode">🏗️</button>
+    </div>
+    <div id="frenzy"><i></i><span>🔥</span></div>
+    <div id="tap-hint" class="hidden">👆 Тапайте по острову!</div>
+  </div>
+
+  <nav id="tabs" class="hidden">
+    <button data-tab="island"><span>🏝️</span>Остров</button>
+    <button data-tab="ship"><span>⛵</span>Корабль</button>
+    <button data-tab="map"><span>🗺️</span>Карта</button>
+    <button data-tab="captain"><span>🏴‍☠️</span>Капитан</button>
+    <button data-tab="shop"><span>🛒</span>Лавка</button>
+    <button data-tab="duel"><span>⚔️</span>Дуэль</button>
+  </nav>
+
+  <section id="panel" class="sheet">
+    <header>
+      <h2 id="panel-title"></h2>
+      <button class="icon-btn" data-act="close">✕</button>
+    </header>
+    <div id="panel-sub" class="subtabs"></div>
+    <div id="panel-body" class="body"></div>
+  </section>
+
+  <div id="battle-ui" class="hidden"></div>
+  <div id="dialogue" class="hidden"></div>
+  <div id="modals"></div>
+  <div id="toasts"></div>
+
+  <div id="loading">
+    <div class="logo">ВОКСЕЛЬНЫЕ<br><span>КОРСАРЫ</span></div>
+    <div class="spinner"></div>
+    <div id="load-msg">Поднимаем паруса…</div>
+  </div>
+
+  <script src="lib/three.min.js"></script>
+  <script src="js/util.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/story.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/combat.js"></script>
+  <script src="js/voxel.js"></script>
+  <script src="js/models.js"></script>
+  <script src="js/scene.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/net.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/panels.js"></script>
+  <script src="js/battle.js"></script>
+  <script src="js/events.js"></script>
+  <script src="js/duel.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
