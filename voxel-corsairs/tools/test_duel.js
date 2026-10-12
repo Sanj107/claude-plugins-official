@@ -8,6 +8,8 @@ let chromium;
 try { ({ chromium } = require('playwright')); } catch (e) { ({ chromium } = require('/opt/node-tools/node_modules/playwright')); }
 const BASE = process.argv[2] || 'http://localhost:8766/android/app/src/main/assets/index.html';
 const OUT = process.argv[3] || path.join(__dirname, '..', 'docs');
+// --online ws://host:port : go through tools/relay_server.js with a room code instead of LAN discovery
+const ONLINE = process.argv.indexOf('--online') > 0 ? process.argv[process.argv.indexOf('--online') + 1] : null;
 
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
@@ -49,12 +51,26 @@ const OUT = process.argv[3] || path.join(__dirname, '..', 'docs');
 
   await host.evaluate(() => VC.UI.openPanel('duel'));
   await host.click('[data-act=duelMode][data-v=equal]');
-  await host.click('[data-act=duelHost]');
-  await guest.evaluate(() => VC.UI.openPanel('duel'));
-  await guest.click('[data-act=duelFind]');
-  await guest.waitForSelector('[data-act=duelJoin]', { timeout: 8000 });
-  await shot(guest, 'duel_found');
-  await guest.click('[data-act=duelJoin]');
+  if (ONLINE) {
+    for (const p of [host, guest]) await p.evaluate(url => { VC.Game.s.settings.relay = url; }, ONLINE);
+    await host.evaluate(() => VC.UI.renderPanel());
+    await host.click('[data-act=duelOnHost]');
+    await host.waitForFunction(() => VC.Duel.code, null, { timeout: 8000 });
+    const code = await host.evaluate(() => VC.Duel.code);
+    console.log('room code', code);
+    await shot(host, 'duel_online_room');
+    await guest.evaluate(() => VC.UI.openPanel('duel'));
+    await guest.click('[data-act=duelOnJoin]');
+    await guest.fill('.modal input[type=text]', code);
+    await guest.click('.modal .btn.green');
+  } else {
+    await host.click('[data-act=duelHost]');
+    await guest.evaluate(() => VC.UI.openPanel('duel'));
+    await guest.click('[data-act=duelFind]');
+    await guest.waitForSelector('[data-act=duelJoin]', { timeout: 8000 });
+    await shot(guest, 'duel_found');
+    await guest.click('[data-act=duelJoin]');
+  }
   await host.waitForSelector('[data-act=duelReady]', { timeout: 8000 });
   await guest.waitForSelector('[data-act=duelReady]', { timeout: 8000 });
   await host.waitForTimeout(500);

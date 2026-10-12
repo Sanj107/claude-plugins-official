@@ -14,7 +14,7 @@
 
   D.init = function () {
     const N = VC.Net;
-    N.on('hosting', o => { D.ips = o.ips || ''; D.refresh(); });
+    N.on('hosting', o => { D.ips = o.ips || ''; D.code = o.code || ''; D.refresh(); });
     N.on('found', o => {
       if (D.phase !== 'searching') return;
       const ex = D.found.find(f => f.ip === o.ip);
@@ -89,8 +89,11 @@
         h += `<div class="grid2"><button class="btn green" data-act="duelHost">📣 Создать дуэль</button><button class="btn blue" data-act="duelFind">🔭 Найти дуэль</button></div>
           ${net === 'android' ? '<div style="margin-top:8px;text-align:center"><button class="btn small" data-act="duelIp">Подключиться по IP</button></div>' : ''}`;
       } else if (D.phase === 'hosting') {
-        h += `<div class="card"><div class="name">📣 Ждём соперника…</div><div class="sub">Попросите друга нажать «Найти дуэль».${D.ips ? `<br>Ваш адрес: <b>${esc(D.ips)}</b>` : ''}</div>
-          <div style="margin-top:8px"><button class="btn red small" data-act="duelCancel">Отмена</button></div></div>`;
+        h += D.online
+          ? `<div class="card"><div class="name">🌐 Комната создана</div>${D.code ? `<div class="big r" style="font-size:34px;text-align:center;letter-spacing:6px;margin:6px 0">${esc(D.code)}</div><div class="sub">Сообщите этот код другу: «Дуэль → Онлайн → Войти по коду».</div>` : '<div class="sub">Подключаемся к серверу…</div>'}
+            <div style="margin-top:8px"><button class="btn red small" data-act="duelCancel">Отмена</button></div></div>`
+          : `<div class="card"><div class="name">📣 Ждём соперника…</div><div class="sub">Попросите друга нажать «Найти дуэль».${D.ips ? `<br>Ваш адрес: <b>${esc(D.ips)}</b>` : ''}</div>
+            <div style="margin-top:8px"><button class="btn red small" data-act="duelCancel">Отмена</button></div></div>`;
       } else if (D.phase === 'searching') {
         h += `<div class="card"><div class="name">🔭 Ищем дуэли рядом…</div>`;
         const list = D.found.filter(f => Date.now() - f.t < 4000);
@@ -102,6 +105,13 @@
       } else if (D.phase === 'lobby' || D.phase === 'battle') {
         h += D.lobbyHtml();
       }
+    }
+    if (D.phase === 'idle') {
+      const url = s.settings.relay || '';
+      h += `<div class="section-title">Онлайн-дуэль (через сервер)</div>
+        <div class="card dark"><div class="sub">Для игры с другом в другом месте нужен свой relay-сервер (tools/relay_server.js, см. README).
+        Сервер: <b>${url ? esc(url) : 'не задан'}</b> <button class="btn small" data-act="duelServer">✎</button></div></div>
+        <div class="grid2"><button class="btn green ${url ? '' : 'disabled'}" data-act="duelOnHost">🌐 Создать комнату</button><button class="btn blue ${url ? '' : 'disabled'}" data-act="duelOnJoin">🔑 Войти по коду</button></div>`;
     }
     h += `<div class="section-title">Тренировка</div>
       <div class="card row"><div class="ico-big">🤖</div><div class="grow"><div class="name">Дуэль с ботом</div><div class="sub">Капитан-соперник под управлением компьютера. Без рейтинга.</div></div>
@@ -146,12 +156,33 @@
         if (D.phase === 'lobby' && D.isHost) { D.ready = [false, false]; D.send({ t: 'mode', m: D.mode }); }
         D.refresh();
         return true;
+      case 'duelServer':
+        UI.prompt('Relay-сервер', 'Адрес, например ws://192.168.1.10:8080 или wss://mygame.example.com', s.settings.relay || 'ws://', v => {
+          s.settings.relay = v.trim(); VC.Game.save(); D.refresh();
+        }, 120);
+        return true;
+      case 'duelOnHost':
+        if (!s.settings.relay) return true;
+        D.isHost = true; D.online = true; D.phase = 'hosting'; D.code = '';
+        VC.Net.onlineHost(s.settings.relay);
+        D.refresh();
+        return true;
+      case 'duelOnJoin':
+        if (!s.settings.relay) return true;
+        UI.prompt('Код комнаты', 'Введите 4 символа от друга:', '', code => {
+          D.isHost = false; D.online = true; D.phase = 'connecting';
+          VC.Net.onlineJoin(s.settings.relay, code.toUpperCase());
+          D.refresh();
+        }, 6);
+        return true;
       case 'duelHost':
+        D.online = false;
         D.isHost = true; D.phase = 'hosting'; D.ips = VC.Net.localIps();
         VC.Net.host(s.name);
         D.refresh();
         return true;
       case 'duelFind':
+        D.online = false;
         D.isHost = false; D.phase = 'searching'; D.found = [];
         VC.Net.discover(true);
         D.refresh();
@@ -171,6 +202,7 @@
   };
 
   D.join = function (ip) {
+    D.online = false;
     D.isHost = false;
     D.phase = 'connecting';
     VC.Net.discover(false);

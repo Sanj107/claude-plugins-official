@@ -278,7 +278,10 @@
     }
     const key = 'player:' + state.ship.tier + ':' + state.skins.sail + state.skins.flag + state.skins.hull;
     const ship = this.shipMesh(this.playerShipOpts(state), key);
-    ship.position.set(2.2, 0, 7.4 + state.ship.tier * 0.12);
+    // Big hulls would hide the island: show them a bit smaller at the pier.
+    const k = Math.min(1, 6.2 / ship.userData.length);
+    ship.scale.setScalar(k);
+    ship.position.set(2.2, 0, 7.3 + ship.userData.length * k * 0.04);
     this.islandGroup.add(ship);
     this.playerShip = ship;
   };
