@@ -29,6 +29,7 @@
     window.addEventListener('resize', () => VC.Scene.resize());
     VC.Events.init();
     VC.Duel.init();
+    if (VC.IAP && VC.IAP.init) VC.IAP.init();
     this.ready = true;
     this.last = performance.now();
     requestAnimationFrame(t => this.frame(t));
@@ -110,51 +111,13 @@
 
   // ------------------------------------------------------------------ input on the 3D view
   G.bindInput = function () {
+    // The camera is fixed: every touch on the 3D view is a tap (no drag, no pinch zoom).
     const c = document.getElementById('gl');
-    let down = null, pinch = null;
-    const pts = new Map();
     c.addEventListener('pointerdown', e => {
       VC.Audio.unlock();
-      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pts.size === 2) {
-        const [a, b] = [...pts.values()];
-        pinch = Math.hypot(a.x - b.x, a.y - b.y);
-        down = null;
-        return;
-      }
-      down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0, id: e.pointerId };
-      // Taps register on press for snappy clicker feel; drags are detected separately.
-      if (VC.Battle.active) { VC.Battle.tap(e.clientX, e.clientY); down.battle = true; return; }
+      if (VC.Battle.active) { VC.Battle.tap(e.clientX, e.clientY); return; }
+      this.tapAt(e.clientX, e.clientY);
     });
-    c.addEventListener('pointermove', e => {
-      if (!pts.has(e.pointerId)) return;
-      const prev = pts.get(e.pointerId);
-      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pts.size === 2 && pinch) {
-        const [a, b] = [...pts.values()];
-        const d = Math.hypot(a.x - b.x, a.y - b.y);
-        VC.Scene.zoom(pinch / d);
-        pinch = d;
-        return;
-      }
-      if (down && !down.battle) {
-        const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
-        down.moved += Math.abs(dx) + Math.abs(dy);
-        if (down.moved > 14) VC.Scene.drag(dx, dy);
-      }
-    });
-    const up = e => {
-      pts.delete(e.pointerId);
-      if (pts.size < 2) pinch = null;
-      if (!down || down.id !== e.pointerId) return;
-      const d = down;
-      down = null;
-      if (d.battle || d.moved > 14) return;
-      this.tapAt(d.x, d.y);
-    };
-    c.addEventListener('pointerup', up);
-    c.addEventListener('pointercancel', e => { pts.delete(e.pointerId); down = null; pinch = null; });
-    c.addEventListener('wheel', e => VC.Scene.zoom(e.deltaY > 0 ? 1.08 : 0.92), { passive: true });
   };
 
   G.tapAt = function (x, y) {
