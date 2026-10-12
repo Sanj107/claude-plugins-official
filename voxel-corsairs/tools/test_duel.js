@@ -7,7 +7,7 @@ const path = require('path');
 let chromium;
 try { ({ chromium } = require('playwright')); } catch (e) { ({ chromium } = require('/opt/node-tools/node_modules/playwright')); }
 const BASE = process.argv[2] || 'http://localhost:8766/android/app/src/main/assets/index.html';
-const OUT = process.argv[3] || path.join(__dirname, '..', 'docs');
+const OUT = process.argv[3] || require('os').tmpdir();
 // --online ws://host:port : go through tools/relay_server.js with a room code instead of LAN discovery
 const ONLINE = process.argv.indexOf('--online') > 0 ? process.argv[process.argv.indexOf('--online') + 1] : null;
 
@@ -97,20 +97,55 @@ const ONLINE = process.argv.indexOf('--online') > 0 ? process.argv[process.argv.
   console.log('host sees hp', hs, 'guest sees hp', gs, 'guest ammo on host', gAmmo);
   const sync = hs.every((v, i) => Math.abs(v - gs[i]) <= Math.max(5, v * 0.05));
   console.log('in sync:', sync);
-  // Guest surrenders.
+  // Round 1: the guest surrenders (input travels to the host).
+  const result = async () => {
+    await host.waitForSelector('.modal h3', { timeout: 12000 });
+    await guest.waitForSelector('.modal h3', { timeout: 12000 });
+    return [await host.$eval('.modal h3', e => e.textContent), await guest.$eval('.modal h3', e => e.textContent)];
+  };
+  const backToLobbyAndFight = async () => {
+    for (const p of [host, guest]) await p.click('.modal > .btns > .btn');
+    await host.waitForSelector('[data-act=duelReady]', { timeout: 8000 });
+    await guest.waitForSelector('[data-act=duelReady]', { timeout: 8000 });
+    await host.click('[data-act=duelReady]');
+    await guest.click('[data-act=duelReady]');
+    await host.waitForFunction(() => VC.Battle.active && !VC.Battle.active.done, null, { timeout: 8000 });
+    await guest.waitForFunction(() => VC.Battle.active && !VC.Battle.active.done, null, { timeout: 8000 });
+    await host.waitForTimeout(800);
+  };
   await guest.evaluate(() => VC.Battle.active.sim.input('flee'));
-  await host.waitForSelector('.modal h3', { timeout: 10000 });
-  await guest.waitForSelector('.modal h3', { timeout: 10000 });
-  const ht = await host.$eval('.modal h3', e => e.textContent);
-  const gt = await guest.$eval('.modal h3', e => e.textContent);
-  console.log('host result:', ht, '| guest result:', gt);
+  const [ht, gt] = await result();
+  console.log('round 1 (guest surrenders) host:', ht, '| guest:', gt);
   await shot(host, 'duel_result_host');
+  // Round 2: the host surrenders — an input on the host ends the battle between frames; the
+  // guest must still receive the end (regression: its screen used to freeze).
+  await backToLobbyAndFight();
+  // Deterministic: surrender, then a single short frame (shorter than one 0.05 s sim step).
+  const sentEnd = await host.evaluate(() => {
+    const B = VC.Battle;
+    B.active.acc = 0;
+    B.active.sim.input('flee');
+    B.update(0.01);
+    return !!(VC.Duel.net && VC.Duel.net.sentEnd);
+  });
+  console.log('end sent to guest within the same frame:', sentEnd);
+  const [ht2, gt2] = await result();
+  console.log('round 2 (host surrenders) host:', ht2, '| guest:', gt2);
+  // Round 3: the guest boards a crippled host ship.
+  await backToLobbyAndFight();
+  await host.evaluate(() => { const b = VC.Battle.active.sim.b; b.s[0].crew = b.s[0].maxCrew * 0.05; b.s[1].crew = b.s[1].maxCrew; });
+  await guest.waitForTimeout(400);
+  await guest.evaluate(() => VC.Battle.active.sim.input('board'));
+  const [ht3, gt3] = await result();
+  const reason3 = await guest.$eval('.modal p', e => e.textContent);
+  console.log('round 3 (guest boards) host:', ht3, '| guest:', gt3, '|', reason3);
   const ratings = [await host.evaluate(() => VC.Game.s.pvp.rating), await guest.evaluate(() => VC.Game.s.pvp.rating)];
   console.log('ratings after:', ratings);
   console.log('ERRORS:', errors.length);
   for (const e of errors.slice(0, 10)) console.log(' -', e);
   await browser.close();
-  const ok = sync && /выиграна/.test(ht) && /проиграна/.test(gt) && gAmmo === 'chain' && !errors.length;
+  const ok = sync && /выиграна/.test(ht) && /проиграна/.test(gt) && sentEnd && /проиграна/.test(ht2) && /выиграна/.test(gt2) &&
+    /проиграна/.test(ht3) && /выиграна/.test(gt3) && /абордаж/.test(reason3) && gAmmo === 'chain' && !errors.length;
   console.log(ok ? 'DUEL TEST PASSED' : 'DUEL TEST FAILED');
   process.exit(ok ? 0 : 1);
 })();

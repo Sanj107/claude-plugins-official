@@ -7,7 +7,7 @@ const path = require('path');
 let chromium;
 try { ({ chromium } = require('playwright')); } catch (e) { ({ chromium } = require('/opt/node-tools/node_modules/playwright')); }
 const BASE = process.argv[2] || 'http://localhost:8766/android/app/src/main/assets/index.html';
-const OUT = process.argv[3] || path.join(__dirname, '..', 'docs');
+const OUT = process.argv[3] || require('os').tmpdir();
 
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });

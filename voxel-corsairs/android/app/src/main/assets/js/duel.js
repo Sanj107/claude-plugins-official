@@ -250,7 +250,12 @@
       case 'bye': UI.toast('Соперник покинул лобби'); D.leave(); break;
       case 'start': if (!D.isHost) D.beginNet(m, false); break;
       case 'in': if (D.isHost && D.net) D.net.b.input(1, m.c, m.a); break;
-      case 'st': if (!D.isHost && D.net) D.net.b.applySnapshot(m.s); break;
+      case 'st': if (!D.isHost && D.net) { D.net.b.applySnapshot(m.s); D.net.lastSnap = performance.now(); } break;
+      case 'stalled':
+        // The guest stopped hearing from us (e.g. this phone was in the background): it took a
+        // technical win, so end the battle here as a loss instead of fighting on alone.
+        if (D.isHost && D.net && !D.net.b.over) D.net.b.finish(1, 'stalled');
+        break;
       case 'fx': if (!D.isHost && D.net) for (const e of m.l) D.net.queue.push(e); break;
       case 'end': if (!D.isHost && D.net) { D.net.b.over = true; D.net.b.winner = m.w; D.net.b.reason = m.r; } break;
       case 'emote': D.showEmote(m.i, false); break;
@@ -277,7 +282,7 @@
     D.phase = 'battle';
     const b = new VC.Combat.Battle(m.a, m.b, host ? ['human', 'remote'] : ['remote', 'human'], { seed: m.seed, pvp: true });
     const me = host ? 0 : 1;
-    const net = { b, me, queue: [], host };
+    const net = { b, me, queue: [], host, lastSnap: performance.now() };
     D.net = net;
     const mine = host ? m.pa : m.pb, theirs = host ? m.pb : m.pa;
     const sim = {
@@ -367,6 +372,19 @@
   };
 
   D.update = function (dt) {
+    // Guest watchdog: the host simulates the battle; if its snapshots stop for 8 s
+    // (host app paused, network gone quiet) end the duel instead of freezing the screen.
+    const n = D.net;
+    const now = performance.now();
+    // If this phone itself was paused, give the host a fresh grace period after resuming.
+    if (n && D.lastUpdate && now - D.lastUpdate > 2000) n.lastSnap = now;
+    D.lastUpdate = now;
+    if (n && !n.host && D.phase === 'battle' && !n.b.over && n.lastSnap && now - n.lastSnap > 8000) {
+      D.send({ t: 'stalled' });
+      n.b.over = true;
+      n.b.winner = n.me;
+      n.b.reason = 'stalled';
+    }
     if (D.botEmote && VC.Battle.active && VC.Battle.active.kind === 'duel' && !VC.Battle.active.done) {
       D._et = (D._et || 0) + dt;
       if (D._et > 0.1) { D._et = 0; D.botEmote(); }
@@ -397,7 +415,7 @@
     G.save();
     UI.modal({
       title: r.win ? 'Дуэль выиграна!' : 'Дуэль проиграна', icon: r.win ? '🏆' : '💀', noClose: true,
-      html: `<p>${r.reason === 'disconnect' ? 'Соперник отключился.' : r.reason === 'board' ? 'Решил абордаж!' : r.reason === 'flee' ? (r.win ? 'Соперник сдался.' : 'Флаг спущен.') : r.reason === 'time' ? 'Время вышло — победа по прочности корпуса.' : 'Корабль идёт ко дну!'}</p>
+      html: `<p>${r.reason === 'disconnect' ? 'Соперник отключился.' : r.reason === 'stalled' ? (r.win ? 'Соперник перестал отвечать — техническая победа.' : 'Связь с соперником прервалась — техническое поражение.') : r.reason === 'board' ? 'Решил абордаж!' : r.reason === 'flee' ? (r.win ? 'Соперник сдался.' : 'Флаг спущен.') : r.reason === 'time' ? 'Время вышло — победа по прочности корпуса.' : 'Корабль идёт ко дну!'}</p>
         <div class="loot">${['🪙 ' + fmt(loot.gold)].concat(loot.pearls ? ['💎 ' + loot.pearls] : []).concat(loot.extra).map(x => `<div>${x}</div>`).join('')}</div>`,
       buttons: [{ label: 'В порт', cls: 'green', fn: () => {
         r.close();
