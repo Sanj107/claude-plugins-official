@@ -37,6 +37,7 @@
     this.sun = new THREE.DirectionalLight(0xfff2d6, 0.85);
     this.sun.position.set(-20, 40, 25);
     scene.add(this.sun);
+    this.quality = quality;
     this.buildSea();
     this.buildSky();
     this.islandGroup = new THREE.Group();
@@ -64,7 +65,8 @@
 
   // ------------------------------------------------------------------ sea & sky
   Scene.buildSea = function () {
-    const g = new THREE.PlaneGeometry(260, 260, 72, 72);
+    const seg = this.quality === 'low' ? 40 : 72;
+    const g = new THREE.PlaneGeometry(260, 260, seg, seg);
     g.rotateX(-Math.PI / 2);
     this.seaBase = g.attributes.position.array.slice();
     this.seaMat = new THREE.MeshPhongMaterial({ color: 0x2a8fb8, specular: 0x9fe3ff, shininess: 70, flatShading: true });

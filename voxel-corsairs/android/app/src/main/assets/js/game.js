@@ -273,16 +273,24 @@
     const b = ST.BY_ID[id];
     if (!this.buildingAvailable(b)) return;
     let plot = ST.plotOf(s, id);
+    let plotCost = 0;
     if (plot < 0) {
       plot = ST.bestPlot(s, id);
       if (plot < 0) {
-        UI.toast(b.plot === 'shore' ? '🏖️ Нужен свободный участок на берегу' : '🌴 Нужен свободный участок на суше', 'bad');
-        return;
+        // No free plot of the right type: clear the next one if it fits, in the same purchase.
+        const next = VC.PLOTS[s.plots];
+        if (next && ST.plotInfo(s.plots).type === b.plot) { plot = s.plots; plotCost = next.cost; }
+        else {
+          UI.toast(b.plot === 'shore' ? '🏖️ Нужен свободный участок на берегу — купите участки или переставьте постройки' : '🌴 Нужен свободный участок на суше — купите участок', 'bad');
+          return;
+        }
       }
     }
     let n = mult === 'max' ? Math.max(1, ST.maxAffordable(s, id)) : (mult || 1);
-    const cost = ST.buildingCost(s, id, n);
+    const cost = ST.buildingCost(s, id, n) + plotCost;
+    if (s.gold < cost && plotCost) { VC.Audio.sfx('error'); UI.toast(`Нужно 🪙 ${fmt(cost)}: постройка + новый участок`, 'bad'); return; }
     if (!this.spend(cost)) return;
+    if (plotCost) { s.plots++; UI.toast('🗺️ Расчищен новый участок'); }
     const first = s.buildings[id] === 0;
     if (first) s.layout[plot] = id;
     const before = ST.milestoneMult(s.buildings[id]);
@@ -915,7 +923,7 @@
   G.action = function (act, d) {
     const [name, arg] = act.split(':');
     switch (name) {
-      case 'tab': UI.openPanel(arg); break;
+      case 'tab': if (this.tabUnlocked(arg)) UI.openPanel(arg); else UI.toast('🔒 Откроется по сюжету'); break;
       case 'close': UI.closePanel(); break;
       case 'settings': VC.Panels.settings(); break;
       case 'objective': this.storyGo(); break;
@@ -989,6 +997,13 @@
     if (this.paused) return;
     const speed = this.s.settings.tester ? (this.s.settings.speed || 1) : 1;
     this.tick(dt * speed, dt);
+    // "Эконом" graphics renders at ~30 fps to save battery.
+    if (this.s.settings.quality === 'low') {
+      this.skipAcc = (this.skipAcc || 0) + dt;
+      if (this.skipAcc < 1 / 31) return;
+      dt = this.skipAcc;
+      this.skipAcc = 0;
+    }
     VC.Scene.update(dt);
   };
 

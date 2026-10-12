@@ -62,7 +62,7 @@
 
   // ------------------------------------------------------------------ ships
   VC.SHIPS = [
-    { tier: 1, name: 'Шлюп', hp: 100, guns: 4, gunDmg: 3, reload: 4.0, crew: 20, sails: 80, eva: 0.08, slots: 2, cap: 15, cost: 0, ch: 0,
+    { tier: 1, name: 'Шлюп', hp: 100, guns: 4, gunDmg: 3, reload: 4.0, crew: 20, sails: 80, eva: 0.08, slots: 2, cap: 20, cost: 0, ch: 0,
       desc: 'Маленький и юркий. Одна мачта, четыре пушки и много надежды.' },
     { tier: 2, name: 'Бригантина', hp: 450, guns: 8, gunDmg: 7, reload: 3.8, crew: 45, sails: 300, eva: 0.10, slots: 3, cap: 30, cost: 5e4, ch: 2,
       desc: 'Две мачты, восемь пушек. Уже не стыдно поднять чёрный флаг.' },
@@ -168,7 +168,7 @@
     crab: { name: 'Краб-переросток', icon: '🦀', model: { kind: 'crab', color: '#e2553a' }, hp: 0.8, dmg: 0.7, crew: 0, reload: 4.4, eva: 0.05 },
     smugglers: { name: 'Лодка контрабандистов', icon: '🛶', model: { kind: 'ship', tier: 0, style: 'smuggler' }, hp: 0.9, dmg: 0.9, crew: 0.8, reload: 4.2, eva: 0.12 },
     fisher: { name: 'Пьяный рыбак', icon: '🎣', model: { kind: 'ship', tier: 0, style: 'fisher' }, hp: 0.7, dmg: 0.6, crew: 0.6, reload: 5, eva: 0.05, loot: 1.4 },
-    hook: { name: 'Капитан Ржавый Крюк', icon: '🪝', boss: true, model: { kind: 'ship', tier: 1, style: 'rust' }, hp: 3, dmg: 1.5, crew: 1.5, reload: 4.2, eva: 0.08, abil: ['heal'] },
+    hook: { name: 'Капитан Ржавый Крюк', icon: '🪝', boss: true, model: { kind: 'ship', tier: 1, style: 'rust' }, hp: 2.4, dmg: 1.35, crew: 1.4, reload: 4.2, eva: 0.08, abil: ['heal'] },
     cutter: { name: 'Куттер Короны', icon: '⛵', model: { kind: 'ship', tier: 1, style: 'navy' }, hp: 1, dmg: 1.1, crew: 1, reload: 4.0, eva: 0.12 },
     merchant: { name: 'Торговая шхуна', icon: '🚢', model: { kind: 'ship', tier: 2, style: 'merchant' }, hp: 1.2, dmg: 0.5, crew: 0.7, reload: 5, eva: 0.04, loot: 2 },
     bluebeard: { name: 'Синебородые', icon: '🧔‍♂️', model: { kind: 'ship', tier: 2, style: 'blue' }, hp: 1.1, dmg: 1.1, crew: 1.2, reload: 4.2, eva: 0.1 },

@@ -55,13 +55,18 @@
       const placed = ST.plotOf(s, b.id) >= 0;
       const mult = G().buyMult;
       const n = mult === 'max' ? Math.max(1, ST.maxAffordable(s, b.id)) : mult;
-      const cost = ST.buildingCost(s, b.id, n);
+      let cost = ST.buildingCost(s, b.id, n);
+      // Unplaced building without a free plot of its type: the next plot is bought with it.
+      let needPlot = false;
+      if (!placed && ST.bestPlot(s, b.id) < 0) {
+        if (s.plots < VC.PLOTS.length && ST.plotInfo(s.plots).type === b.plot) { cost += VC.PLOTS[s.plots].cost; needPlot = true; }
+      }
       const per = b.inc * ST.milestoneMult(lvl + 1) * D.globalMult * (D.bSyn[b.id] ? D.bSyn[b.id].mult : 1);
       const next = ST.nextMilestone(lvl);
       const syn = D.bSyn[b.id];
       let tags = '';
       if (syn && syn.mult > 1) tags += `<span class="tag g">соседи +${Math.round((syn.mult - 1) * 100)}%</span>`;
-      if (!placed) tags += `<span class="tag ${b.plot === 'shore' ? 'y' : 'g'}">${b.plot === 'shore' ? '🏖️ берег' : '🌴 суша'}</span>`;
+      if (!placed) tags += `<span class="tag ${b.plot === 'shore' ? 'y' : 'g'}">${b.plot === 'shore' ? '🏖️ берег' : '🌴 суша'}${needPlot ? ' + участок' : ''}</span>`;
       if (next && lvl > 0) tags += `<span class="tag b">×2 на ур. ${next}</span>`;
       const pairs = VC.SYNERGIES.filter(x => x[0] === b.id || x[1] === b.id).map(x => ST.BY_ID[x[0] === b.id ? x[1] : x[0]]);
       const hl = G().mission() && G().mission().goal.t === 'build' && G().mission().goal.id === b.id ? ' hl' : '';
@@ -643,5 +648,5 @@
     UI.modal({ title: '📜 Записка №' + (i + 1), html: `<p style="font-style:italic">${esc(VC.NOTES[i])}</p>`, buttons: [{ label: 'Закрыть' }] });
   };
 
-  VC.VERSION = '0.1.0';
+  VC.VERSION = '0.1.1';
 })(window.VC);
