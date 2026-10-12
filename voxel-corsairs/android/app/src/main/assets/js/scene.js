@@ -76,21 +76,173 @@
     this.w = w; this.h = h;
   };
 
-  Scene.shipMesh = function (opts, key) {
-    const info = M.ship(opts);
-    const k = key || ('ship:' + opts.tier + ':' + JSON.stringify(opts.style));
-    let g = geoCache.get(k);
-    if (!g) {
-      g = VC.Voxel.mesh(info.vox, { scale: S, center: [(info.vox.minX + info.vox.maxX + 1) / 2, info.waterline, 0] });
-      geoCache.set(k, g);
+  // ------------------------------------------------------------------ shared materials & geometry helpers
+  /** Time uniform shared by the animated materials (cloth, water). */
+  Scene.clothTime = { value: 0 };
+  const matCache = {};
+
+  /**
+   * Vertex-coloured Lambert material whose geometry carries a `cloth` attribute (vec3):
+   * x = billow along +x, y = flag flutter amplitude, z = billow along +z (world units).
+   * Sails breathe and flags wave in the vertex shader: no per-frame geometry updates.
+   */
+  Scene.clothMaterial = function (ghost) {
+    const k = ghost ? 'clothGhost' : 'cloth';
+    if (matCache[k]) return matCache[k];
+    const m = new THREE.MeshLambertMaterial(ghost ? { vertexColors: true, transparent: true, opacity: 0.82, emissive: 0x1a4a3a } : { vertexColors: true });
+    m.onBeforeCompile = sh => {
+      sh.uniforms.uTime = Scene.clothTime;
+      sh.vertexShader = 'attribute vec3 cloth;\nuniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>', [
+        '#include <begin_vertex>',
+        'float cph = modelMatrix[3].x * 0.9 + modelMatrix[3].z * 0.6;',
+        'transformed.x += cloth.x * (0.72 + 0.28 * sin(uTime * 1.7 + cph + position.y * 0.5));',
+        'transformed.z += cloth.z * (0.7 + 0.3 * sin(uTime * 1.5 + cph));',
+        'transformed.z += cloth.y * sin(uTime * 7.0 + position.x * 5.0 + cph);',
+        'transformed.y += cloth.y * 0.3 * cos(uTime * 6.0 + position.x * 4.0 + cph);',
+      ].join('\n'));
+    };
+    matCache[k] = m;
+    return m;
+  };
+
+  /** Lamps, windows and fire: vertex colour emission scaled by Scene.glowLevel (night). */
+  Scene.glowMaterial = function () {
+    if (matCache.glow) return matCache.glow;
+    const m = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xffffff, emissiveIntensity: 0.15 });
+    m.onBeforeCompile = sh => {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= vColor;');
+    };
+    matCache.glow = m;
+    return m;
+  };
+  /** Sets how strongly lamps glow (0 day .. 1 night). */
+  Scene.setGlow = function (k) {
+    const m = this.glowMaterial();
+    m.emissiveIntensity = 0.12 + k * 0.95;
+  };
+
+  Scene.ghostMaterial = function () {
+    return matCache.ghost || (matCache.ghost = VC.Voxel.material({ transparent: true, opacity: 0.82, emissive: 0x1a4a3a }));
+  };
+
+  /**
+   * Merges geometries into one (positions/normals transformed). items: [{ geo, matrix? }].
+   * Keeps position, normal, color and any extra attribute that every item has.
+   */
+  Scene.mergeGeos = function (items) {
+    items = items.filter(it => it.geo && it.geo.attributes.position.count);
+    const out = new THREE.BufferGeometry();
+    if (!items.length) {
+      out.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+      out.setAttribute('normal', new THREE.Float32BufferAttribute([], 3));
+      out.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
+      return out;
     }
-    const ghost = opts.style === 'ghost' || opts.style === 'abyss' || (opts.style && opts.style.ghost);
-    const mat = ghost ? VC.Voxel.material({ transparent: true, opacity: 0.82, emissive: 0x1a4a3a }) : VC.Voxel.material();
-    const mesh = new THREE.Mesh(g, mat);
+    const names = Object.keys(items[0].geo.attributes).filter(n => items.every(it => it.geo.attributes[n]));
+    let nv = 0, ni = 0;
+    for (const it of items) { nv += it.geo.attributes.position.count; ni += it.geo.index ? it.geo.index.count : it.geo.attributes.position.count; }
+    const arrs = {};
+    for (const n of names) arrs[n] = new Float32Array(nv * items[0].geo.attributes[n].itemSize);
+    const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+    const nm = new THREE.Matrix3();
+    const bb = [1e9, 1e9, 1e9, -1e9, -1e9, -1e9];
+    let vo = 0, io = 0;
+    for (const it of items) {
+      const g = it.geo, cnt = g.attributes.position.count, m = it.matrix;
+      let e = null, q = null, ql = 1;
+      if (m) { nm.getNormalMatrix(m); e = m.elements; q = nm.elements; ql = 1 / (Math.hypot(q[0], q[1], q[2]) || 1); }
+      for (const n of names) {
+        const src = g.attributes[n].array, sz = g.attributes[n].itemSize, dst = arrs[n];
+        if (e && n === 'position') {
+          for (let i = 0, o = vo * 3; i < cnt * 3; i += 3, o += 3) {
+            const x = src[i], y = src[i + 1], z = src[i + 2];
+            const px = e[0] * x + e[4] * y + e[8] * z + e[12], py = e[1] * x + e[5] * y + e[9] * z + e[13], pz = e[2] * x + e[6] * y + e[10] * z + e[14];
+            dst[o] = px; dst[o + 1] = py; dst[o + 2] = pz;
+            if (px < bb[0]) bb[0] = px; if (py < bb[1]) bb[1] = py; if (pz < bb[2]) bb[2] = pz;
+            if (px > bb[3]) bb[3] = px; if (py > bb[4]) bb[4] = py; if (pz > bb[5]) bb[5] = pz;
+          }
+        } else if (e && n === 'normal') {
+          // rotation + uniform scale: unit normals only need the one scale factor
+          for (let i = 0, o = vo * 3; i < cnt * 3; i += 3, o += 3) {
+            const x = src[i], y = src[i + 1], z = src[i + 2];
+            dst[o] = (q[0] * x + q[3] * y + q[6] * z) * ql; dst[o + 1] = (q[1] * x + q[4] * y + q[7] * z) * ql; dst[o + 2] = (q[2] * x + q[5] * y + q[8] * z) * ql;
+          }
+        } else {
+          dst.set(src.subarray(0, cnt * sz), vo * sz);
+          if (n === 'position') for (let i = 0; i < cnt * 3; i += 3) {
+            const px = src[i], py = src[i + 1], pz = src[i + 2];
+            if (px < bb[0]) bb[0] = px; if (py < bb[1]) bb[1] = py; if (pz < bb[2]) bb[2] = pz;
+            if (px > bb[3]) bb[3] = px; if (py > bb[4]) bb[4] = py; if (pz > bb[5]) bb[5] = pz;
+          }
+        }
+      }
+      if (g.index) { const s = g.index.array; for (let i = 0; i < s.length; i++) idx[io + i] = s[i] + vo; io += s.length; }
+      else { for (let i = 0; i < cnt; i++) idx[io + i] = vo + i; io += cnt; }
+      vo += cnt;
+    }
+    for (const n of names) out.setAttribute(n, new THREE.BufferAttribute(arrs[n], items[0].geo.attributes[n].itemSize));
+    out.setIndex(new THREE.BufferAttribute(idx, 1));
+    // bounding sphere from the box (cheaper than computeBoundingSphere on big merges)
+    const c = new THREE.Vector3((bb[0] + bb[3]) / 2, (bb[1] + bb[4]) / 2, (bb[2] + bb[5]) / 2);
+    out.boundingSphere = new THREE.Sphere(c, Math.hypot(bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2]) / 2);
+    return out;
+  };
+
+  // ------------------------------------------------------------------ ships
+  const shipCache = new Map();
+  const rigMats = {};
+  /**
+   * A ship as a THREE.Group: hull mesh, cloth mesh (sails + flags, animated in the shader),
+   * rigging (LineSegments), lamps (glow). userData: { info, length, deckY, halfW } in world units
+   * relative to the group origin (the waterline).
+   */
+  Scene.shipMesh = function (opts, key) {
+    const k = key || ('ship:' + opts.tier + ':' + JSON.stringify(opts.style));
+    let sp = shipCache.get(k);
+    if (!sp) {
+      const info = M.ship(opts);
+      const center = [(info.vox.minX + info.vox.maxX + 1) / 2, info.waterline, 0];
+      const mo = { scale: S, center };
+      const hull = VC.Voxel.mesh(info.vox, { scale: S, center, occluders: info.glow });
+      const glow = info.glow.count ? VC.Voxel.mesh(info.glow, { scale: S, center, occluders: info.vox }) : null;
+      const cloth = info.cloth.length ? this.mergeGeos(info.cloth.map(c => ({ geo: VC.Voxel.mesh(c.vox, Object.assign({ attr: { name: 'cloth', size: 3, fn: c.fn }, occluders: info.vox }, mo)) }))) : null;
+      let rig = null;
+      if (info.rig.length) {
+        const pts = new Float32Array(info.rig.length * 6);
+        info.rig.forEach(([a, b], i) => {
+          for (let j = 0; j < 3; j++) { pts[i * 6 + j] = (a[j] - center[j]) * S; pts[i * 6 + 3 + j] = (b[j] - center[j]) * S; }
+        });
+        rig = new THREE.BufferGeometry();
+        rig.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+        rig.computeBoundingSphere();
+      }
+      sp = { info, hull, glow, cloth, rig, center };
+      shipCache.set(k, sp);
+    }
+    const st = opts.style;
+    const ghost = st === 'ghost' || st === 'abyss' || (st && st.ghost);
     const grp = new THREE.Group();
-    grp.add(mesh);
+    const hullMesh = new THREE.Mesh(sp.hull, ghost ? this.ghostMaterial() : VC.Voxel.material());
+    grp.add(hullMesh);
+    if (sp.cloth) {
+      const cm = new THREE.Mesh(sp.cloth, this.clothMaterial(ghost));
+      cm.onBeforeRender = () => { Scene.clothTime.value = Scene.t; };
+      grp.add(cm);
+    }
+    if (sp.rig) {
+      const rk = ghost ? 'g' : 'n';
+      const lm = rigMats[rk] || (rigMats[rk] = new THREE.LineBasicMaterial(ghost ? { color: 0x7dffc8, transparent: true, opacity: 0.55 } : { color: 0x3a2a1a }));
+      grp.add(new THREE.LineSegments(sp.rig, lm));
+    }
+    if (sp.glow) grp.add(new THREE.Mesh(sp.glow, this.glowMaterial()));
+    const info = sp.info;
     grp.userData.info = info;
     grp.userData.length = info.length * S;
+    grp.userData.deckY = (info.deckY - sp.center[1]) * S;
+    grp.userData.halfW = info.halfW * S;
+    grp.userData.bowX = (info.length - sp.center[0]) * S;
+    grp.userData.sternX = -sp.center[0] * S;
+    grp.userData.hull = hullMesh;
     return grp;
   };
 
