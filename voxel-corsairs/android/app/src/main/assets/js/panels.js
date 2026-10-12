@@ -648,5 +648,5 @@
     UI.modal({ title: '📜 Записка №' + (i + 1), html: `<p style="font-style:italic">${esc(VC.NOTES[i])}</p>`, buttons: [{ label: 'Закрыть' }] });
   };
 
-  VC.VERSION = '0.1.3';
+  VC.VERSION = '0.1.4';
 })(window.VC);

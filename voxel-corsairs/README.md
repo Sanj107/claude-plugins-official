@@ -66,6 +66,7 @@ node tools/test_smoke.js                # UI, пролог, все вкладк�
 node tools/test_duel.js                 # две вкладки = два телефона: лобби, синхронный бой, рейтинг
 node tools/relay_server.js 8090 & node tools/test_duel.js "" "" --online ws://localhost:8090   # то же через relay
 node tools/test_story.js                # весь сюжет 65/65, бесконечный режим, Легенда, офлайн-доход
+node tools/test_overlap.js              # постройки не вылезают за свой участок, пальмы и камни не залезают на участки
 ```
 
 С установленным Android SDK можно собрать и через Gradle: `cd android && ./gradlew assembleRelease`.

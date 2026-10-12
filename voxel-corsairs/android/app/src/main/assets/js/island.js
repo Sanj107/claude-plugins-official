@@ -8,18 +8,32 @@
   const geoCache = Scene.geoCache;
 
   // ------------------------------------------------------------------ island
+  let islandVox = null;
+  /** Height of the highest terrain voxel in the island column (x, z), in voxels. */
+  function groundTop(x, z) {
+    if (!islandVox) islandVox = M.island(3);
+    x = Math.round(x); z = Math.round(z);
+    for (let y = 16; y >= -3; y--) if (islandVox.has(x, y, z)) return y;
+    return -1;
+  }
+
   Scene.buildIsland = function (state) {
     const g = this.islandGroup;
     while (g.children.length) g.remove(g.children[0]);
     this.tappables = this.tappables.filter(t => t.persistent);
     const terrain = new THREE.Mesh(cachedGeo('island', () => M.island(3), { scale: S, center: [0, 0, 0] }), VC.Voxel.material());
     terrain.position.y = -0.35;
+    terrain.userData.terrain = true;
     g.add(terrain);
     this.terrain = terrain;
-    const palms = [[-21, 6], [-19, 14], [20, 9], [22, 2], [-12, 17], [16, 16], [-23, -4], [23, -8], [2, 19]];
-    palms.forEach(([x, z], i) => {
-      const m = new THREE.Mesh(cachedGeo('palm' + (i % 4), () => M.palm(7 + (i % 3), i + 20)), VC.Voxel.material());
-      m.position.set(x * S, (z > 14 || Math.abs(x) > 20 ? 1.5 : 3) * S - 0.35 + S, z * S);
+    // Decorative palms stand on the beach around the plot grid: [x, z, height, crown reach] in voxels.
+    // Crowns must not reach the plot cells (x −15.5…16.5, z −18.5…13.5) or they poke into buildings;
+    // the ones in front of the camera are short so they don't hide the front row.
+    const palms = [[-23, -4, 8, 4], [23, -8, 7, 4], [-22, 6, 7, 4], [23, 4, 8, 4], [-22, -12, 6, 4], [22, -12, 7, 4],
+      [12, 17, 4, 3], [2, 20, 5, 3]];
+    palms.forEach(([x, z, h, reach], i) => {
+      const m = new THREE.Mesh(cachedGeo('palm:' + h + ':' + reach + ':' + i, () => M.palm(h, i + 20, reach, 0.3)), VC.Voxel.material());
+      m.position.set(x * S, (groundTop(x, z) + 1) * S - 0.35, z * S);
       m.rotation.y = i * 1.3;
       g.add(m);
     });
@@ -67,9 +81,9 @@
       const [px, pz] = M.plotCenter(p.r, p.c);
       const m = new THREE.Mesh(cachedGeo('b:' + bid, () => M.building(bid)), VC.Voxel.material());
       m.position.set(px * S + S / 2, (M.GROUND + 1) * S - 0.35, pz * S + S / 2);
+      // Higher levels make a building a little taller — only upwards, so it never spills out of its plot.
       const lvl = state.buildings[bid];
-      const grow = 1 + Math.min(0.18, Math.floor(Math.log2(1 + lvl / 10)) * 0.04);
-      m.scale.setScalar(grow);
+      m.scale.y = 1 + Math.min(0.18, Math.floor(Math.log2(1 + lvl / 10)) * 0.04);
       m.userData.building = bid;
       m.userData.plot = i;
       g.add(m);

@@ -448,10 +448,12 @@
     return v;
   }
 
-  function palm(h, seed) {
+  /** Palm tree: trunk of height h, leaves reaching `spread` voxels out; `bend` scales the random lean. */
+  function palm(h, seed, spread, bend) {
     const rnd = VC.util.rng(seed || 1);
     const v = new Vox();
-    const lean = rnd() * 2 - 1;
+    const lean = (rnd() * 2 - 1) * (bend === undefined ? 1 : bend);
+    const reach = spread || 5;
     let x = 0, z = 0;
     for (let y = 0; y < h; y++) {
       x += lean * 0.18; z += (rnd() - 0.5) * 0.2;
@@ -461,7 +463,7 @@
     const leaf = ['#2f9e44', '#37b24d', '#2b8a3e'];
     for (let a = 0; a < 6; a++) {
       const ang = a / 6 * Math.PI * 2 + rnd() * 0.3;
-      for (let k = 1; k <= 5; k++) {
+      for (let k = 1; k <= reach; k++) {
         v.set(x + Math.cos(ang) * k, ty + 1 - Math.floor(k * k / 8), z + Math.sin(ang) * k, leaf[(a + k) % 3]);
       }
     }
@@ -499,9 +501,11 @@
       for (let y = 0; y < 4; y++) v.set(-3, y, (y % 2) - 1, '#d8d0b0');
     },
     grove(v) {
-      const p1 = palm(8, 11), p2 = palm(6, 12), p3 = palm(7, 13);
+      // Three compact palms whose crowns stay inside the plot (full-size crowns reached the neighbours' roofs).
+      const p1 = palm(8, 11, 3, 0.3), p2 = palm(6, 12, 2, 0.3), p3 = palm(5, 13, 2, 0.3);
       [[p1, -1, -1], [p2, 2, 1], [p3, -2, 2]].forEach(([p, ox, oz]) => p.each((x, y, z, c) => v.set(x + ox, y, z + oz, c)));
       v.ball(2, 0, -2, 1.5, 1, 1.5, '#6b4a2e');
+      v.box(1, 0, 2, 1, 0, 2, '#c9a227'); v.set(-1, 0, 1, '#c9a227');
     },
     smoke(v) {
       v.box(-3, 0, -2, 2, 2, 2, '#8c8c88');
@@ -574,7 +578,7 @@
       v.box(3, 0, -3, 3, 9, -3, '#5a3a1e'); v.line(3, 9, -3, -1, 9, -3, '#5a3a1e'); v.line(-1, 9, -3, -1, 6, -3, '#999');
     },
     mine(v) {
-      v.ball(0, 0, -1, 4, 5, 3.5, (x, y, z) => ((x * 5 + y * 3 + z * 7) % 9 === 0 ? '#ffd23f' : '#7a7a76'), (x, y) => y >= 0);
+      v.ball(0, 0, -1, 3.6, 5, 3.5, (x, y, z) => ((x * 5 + y * 3 + z * 7) % 9 === 0 ? '#ffd23f' : '#7a7a76'), (x, y) => y >= 0);
       v.box(-1, 0, 2, 1, 2, 3, '#1a1410');
       v.box(-2, 3, 2, 2, 3, 3, '#6b4423'); v.box(-2, 0, 2, -2, 2, 3, '#6b4423'); v.box(2, 0, 2, 2, 2, 3, '#6b4423');
       v.box(1, 0, 3, 3, 1, 3, '#555'); v.set(2, 2, 3, '#ffd23f'); v.set(1, 2, 3, '#ffd23f');
@@ -633,7 +637,28 @@
   function building(id) {
     const v = new Vox();
     (BUILD[id] || BUILD.hut)(v);
-    return v;
+    return fitCell(v, PITCH);
+  }
+
+  /**
+   * Keeps a model within n voxels along x and z, so it never reaches into the neighbouring plot
+   * (a cell is the 7-voxel plot plus half of the path on each side). Overflowing columns are cut
+   * from whichever side has fewer voxels in them.
+   */
+  function fitCell(v, n) {
+    const keep = [];
+    for (const axis of ['x', 'z']) {
+      const cnt = new Map();
+      v.each((x, y, z) => { const a = axis === 'x' ? x : z; cnt.set(a, (cnt.get(a) || 0) + 1); });
+      let lo = Math.min(...cnt.keys()), hi = Math.max(...cnt.keys());
+      while (hi - lo + 1 > n) { if ((cnt.get(lo) || 0) <= (cnt.get(hi) || 0)) lo++; else hi--; }
+      keep.push([lo, hi]);
+    }
+    const [[x0, x1], [z0, z1]] = keep;
+    if (x0 <= v.minX && x1 >= v.maxX && z0 <= v.minZ && z1 >= v.maxZ) return v;
+    const out = new Vox();
+    v.each((x, y, z, c) => { if (x >= x0 && x <= x1 && z >= z0 && z <= z1) out.set(x, y, z, c); });
+    return out;
   }
 
   // ------------------------------------------------------------------ props
