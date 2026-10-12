@@ -12,6 +12,19 @@
     return parseInt(h, 16);
   }
 
+  // Surface materials. Models tag a voxel with mat(name, colour): the colour keeps the low 24 bits and
+  // the material id goes into bits 24-30, so tagged colours still work everywhere a colour does.
+  // The renderer draws a procedural pixel texture per material (planks, bricks, roof tiles, leaves…);
+  // untagged voxels are 'plain'. Append new names at the end only — ids are positional.
+  const MATS = ['plain', 'wood', 'plank', 'stone', 'brick', 'cobble', 'roof', 'thatch', 'leaf', 'grass',
+    'sand', 'rock', 'metal', 'gold', 'cloth', 'glass', 'water', 'snow', 'lava', 'dirt', 'bark'];
+  function mat(name, c) {
+    const id = MATS.indexOf(name);
+    return (toInt(c) & 0xffffff) | ((id > 0 ? id : 0) << 24);
+  }
+  /** Material id of a (possibly tagged) colour. */
+  function matOf(c) { return (toInt(c) >>> 24) & 127; }
+
   function hexToRgb(c) {
     c = toInt(c);
     return [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255];
@@ -148,5 +161,5 @@
     return m;
   }
 
-  VC.Voxel = { Vox, mesh, toMesh, material, hexToRgb, toInt };
+  VC.Voxel = { Vox, mesh, toMesh, material, hexToRgb, toInt, MATS, mat, matOf };
 })(window.VC);
