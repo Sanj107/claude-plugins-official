@@ -179,6 +179,10 @@
         const fx = c.sim.step(0.05);
         for (const e of fx) this.handleFx(e);
       }
+      // Inputs (boarding, surrender, abilities) change the battle between frames; a zero-length
+      // step flushes their events every frame — and on a duel host sends them (and the end of
+      // the battle) to the opponent before this side is marked done.
+      for (const e of c.sim.step(0)) this.handleFx(e);
       // fx coming from the network (client side)
       if (c.sim.drainFx) for (const e of c.sim.drainFx()) this.handleFx(e);
       this.refreshUi();
