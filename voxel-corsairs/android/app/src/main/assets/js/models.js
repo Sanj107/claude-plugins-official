@@ -802,80 +802,127 @@
   // ------------------------------------------------------------------ nature
   // Low-detail versions (0.25 units per voxel) are used for the far jungle, the HD ones
   // (0.125 units per voxel) close to the camera.
-  function palm(h, seed) {
+  const LEAF = ['#2f9e44', '#37b24d', '#2b8a3e', '#45b84e'];
+  /** Palm tree: trunk of height h, leaves reaching `spread` voxels out; `bend` scales the random lean. */
+  function palm(h, seed, spread, bend) {
     const rnd = VC.util.rng(seed || 1);
     const v = new Vox();
-    const lean = rnd() * 2 - 1;
+    const lean = (rnd() * 2 - 1) * (bend === undefined ? 1 : bend);
+    const reach = spread || 5;
     let x = 0, z = 0;
     for (let y = 0; y < h; y++) {
       x += lean * 0.18; z += (rnd() - 0.5) * 0.2;
-      v.set(x, y, z, y % 2 ? '#8a6238' : '#9a7044');
+      v.set(x, y, z, MT('bark', y % 2 ? '#8a6238' : '#9a7044'));
     }
     const ty = h;
-    const leaf = ['#2f9e44', '#37b24d', '#2b8a3e'];
     for (let a = 0; a < 6; a++) {
       const ang = a / 6 * Math.PI * 2 + rnd() * 0.3;
-      for (let k = 1; k <= 5; k++) {
-        v.set(x + Math.cos(ang) * k, ty + 1 - Math.floor(k * k / 8), z + Math.sin(ang) * k, leaf[(a + k) % 3]);
+      for (let k = 1; k <= reach; k++) {
+        v.set(x + Math.cos(ang) * k, ty + 1 - Math.floor(k * k / 8), z + Math.sin(ang) * k, MT('leaf', LEAF[(a + k) % 3]));
       }
     }
-    v.set(x, ty, z, '#2f9e44');
-    v.set(x + 1, ty - 1, z, '#6b4a2e'); v.set(x - 1, ty - 1, z, '#6b4a2e'); v.set(x, ty - 1, z + 1, '#6b4a2e');
+    v.set(x, ty, z, MT('leaf', '#2f9e44'));
+    v.set(x + 1, ty - 1, z, MT('bark', '#6b4a2e')); v.set(x - 1, ty - 1, z, MT('bark', '#6b4a2e')); v.set(x, ty - 1, z + 1, MT('bark', '#6b4a2e'));
     return v;
   }
 
-  /** Detailed palm: ringed 2x2 trunk, drooping fronds with leaflets, coconuts. */
-  function palmHD(h, seed) {
+  /**
+   * Detailed palm (0.125): ringed 2x2 trunk that curves, drooping fronds with leaflets on both sides,
+   * coconuts. `reach` limits the crown radius in voxels (default 8).
+   */
+  function palmHD(h, seed, reach) {
     const rnd = VC.util.rng(seed || 1);
     const v = new Vox();
-    const ang0 = rnd() * Math.PI * 2, lean = 0.25 + rnd() * 0.35;
+    const R = reach || 8;
+    const ang0 = rnd() * Math.PI * 2, lean = (0.2 + rnd() * 0.3) * Math.min(1, R / 8);
     const lx = Math.cos(ang0) * lean, lz = Math.sin(ang0) * lean;
     let x = 0, z = 0;
     for (let y = 0; y < h; y++) {
       const k = y / h;
       x = Math.round(lx * k * k * h * 0.6); z = Math.round(lz * k * k * h * 0.6);
-      const c = y % 3 === 0 ? '#6e4c2a' : (y % 3 === 1 ? '#8a6238' : '#9a7044');
+      const ring = y % 3 === 0;
+      const c = MT('bark', ring ? '#6e4c2a' : (y % 3 === 1 ? '#8a6238' : '#9a7044'));
       v.box(x, y, z, x + 1, y, z + 1, c);
+      if (ring && y < 3) { v.set(x - 1, y, z, MT('bark', '#7a5530')); v.set(x + 2, y, z + 1, MT('bark', '#7a5530')); }
     }
     const tx = x + 0.5, tz = z + 0.5;
-    const leaf = ['#2f9e44', '#37b24d', '#2b8a3e', '#45b84e'];
-    const n = 6 + (rnd() * 2 | 0);
+    const n = 7 + (rnd() * 2 | 0);
     for (let a = 0; a < n; a++) {
       const ang = a / n * Math.PI * 2 + rnd() * 0.5;
-      const len = 6 + rnd() * 3;
+      const len = Math.min(R - 0.5, 6 + rnd() * 3);
       const ca = Math.cos(ang), sa = Math.sin(ang);
+      const droop = 6 + rnd() * 3;
       for (let k = 1; k <= len; k++) {
         const t = k / len;
-        const fx = tx + ca * k, fz = tz + sa * k, fy = h + 1 + 2.2 * t - 7 * t * t;
-        v.set(fx, fy, fz, leaf[(a + k) % 4]);
-        if (k > 1 && k < len - 1 && k % 2 === 0) {
-          v.set(fx - sa, fy - 1, fz + ca, leaf[(a + k + 1) % 4]);
-          v.set(fx + sa, fy - 1, fz - ca, leaf[(a + k + 2) % 4]);
+        const fx = tx + ca * k, fz = tz + sa * k, fy = h + 1 + 2.2 * t - droop * t * t;
+        v.set(fx, fy, fz, MT('leaf', shade(LEAF[(a + k) % 4], 1.05 - t * 0.15)));
+        if (k > 1 && k < len) {
+          const lw = k < len * 0.7 ? 1 : 0;
+          for (let q = 1; q <= 1 + lw; q++) {
+            v.set(fx - sa * q, fy - q * 0.6, fz + ca * q, MT('leaf', LEAF[(a + k + q) % 4]));
+            v.set(fx + sa * q, fy - q * 0.6, fz - ca * q, MT('leaf', LEAF[(a + k + q + 1) % 4]));
+          }
         }
       }
     }
-    v.box(Math.floor(tx) - 1, h - 1, Math.floor(tz), Math.floor(tx) - 1, h, Math.floor(tz), '#5a3a1e');
-    v.box(Math.floor(tx) + 1, h - 2, Math.floor(tz) - 1, Math.floor(tx) + 1, h - 1, Math.floor(tz) - 1, '#6b4a2e');
-    v.box(Math.floor(tx), h - 1, Math.floor(tz) + 1, Math.floor(tx), h, Math.floor(tz) + 1, '#5a3a1e');
-    v.box(Math.floor(tx) - 1, h, Math.floor(tz) - 1, Math.floor(tx) + 1, h, Math.floor(tz) + 1, '#2b8a3e');
+    const cx = Math.floor(tx), cz = Math.floor(tz);
+    v.box(cx - 1, h, cz - 1, cx + 2, h, cz + 2, MT('leaf', '#2b8a3e'));
+    v.box(cx, h + 1, cz, cx + 1, h + 1, cz + 1, MT('leaf', '#37b24d'));
+    for (const [dx, dz, dy] of [[-1, 0, -1], [2, 1, -1], [0, 2, -2], [1, -1, -2], [2, -1, -1]]) v.set(cx + dx, h + dy, cz + dz, MT('wood', dy === -2 ? '#5a3a1e' : '#6b4a2e'));
     return v;
   }
 
-  /** Broadleaf jungle tree (low detail). */
+  /** Broadleaf jungle tree (low detail, 0.25). */
   function tree(seed) {
     const rnd = VC.util.rng(seed || 2);
     const v = new Vox();
     const h = 4 + Math.round(rnd() * 3);
-    for (let y = 0; y < h; y++) v.set(0, y, 0, y % 2 ? '#6b4a2e' : '#5a3d22');
-    v.set(1, h - 2, 0, '#5a3d22'); v.set(-1, h - 1, 1, '#5a3d22');
+    for (let y = 0; y < h; y++) v.set(0, y, 0, MT('bark', y % 2 ? '#6b4a2e' : '#5a3d22'));
+    v.set(1, h - 2, 0, MT('bark', '#5a3d22')); v.set(-1, h - 1, 1, MT('bark', '#5a3d22'));
     const greens = ['#3f8f3a', '#4fa64a', '#357a32', '#5cb84f'];
     const blobs = 3 + Math.round(rnd() * 2);
     for (let b = 0; b < blobs; b++) {
       const bx = (rnd() - 0.5) * 3, bz = (rnd() - 0.5) * 3, by = h + rnd() * 2;
       const r = 1.8 + rnd() * 1.3;
-      v.ball(bx, by, bz, r, r * 0.8, r, (x, y, z) => greens[(y > by ? 3 : 0) + ((x * 7 + z * 3 + y) & 1) * (y > by ? -1 : 2) & 3]);
+      v.ball(bx, by, bz, r, r * 0.8, r, (x, y, z) => MT('leaf', greens[(y > by ? 3 : 0) + ((x * 7 + z * 3 + y) & 1) * (y > by ? -1 : 2) & 3]));
     }
-    if (rnd() < 0.35) for (let k = 0; k < 4; k++) v.set((rnd() - 0.5) * 4, h + rnd() * 2, 2 + rnd(), rnd() < 0.5 ? '#ff7b3a' : '#ffd23f');
+    if (rnd() < 0.35) for (let k = 0; k < 4; k++) v.set((rnd() - 0.5) * 4, h + rnd() * 2, 2 + rnd(), MT('leaf', rnd() < 0.5 ? '#ff7b3a' : '#ffd23f'));
+    return v;
+  }
+
+  /** Broadleaf tree in detail (0.125): forked trunk with roots, layered leaf clusters. */
+  function treeHD(seed, size) {
+    const rnd = VC.util.rng(seed || 2);
+    const v = new Vox();
+    const sz = size || 1;
+    const h = Math.round((9 + rnd() * 5) * sz);
+    const bark = y => MT('bark', hash(0, y, seed) < 0.3 ? '#5a3d22' : y % 4 === 0 ? '#6e4c2a' : '#7a5530');
+    for (let y = 0; y < h; y++) v.box(0, y, 0, 1, y, 1, bark(y));
+    for (const [dx, dz] of [[-1, 0], [2, 1], [0, 2], [1, -1]]) v.set(dx, 0, dz, MT('bark', '#5a3d22'));
+    const branches = 3 + (rnd() * 2 | 0);
+    const greens = ['#3f8f3a', '#4fa64a', '#357a32', '#5cb84f', '#468f3c'];
+    const blobs = [];
+    for (let b = 0; b < branches; b++) {
+      const a = b / branches * Math.PI * 2 + rnd();
+      const len = (3 + rnd() * 2) * sz;
+      const by = h - 3 - (rnd() * 3 | 0);
+      const ex = Math.cos(a) * len, ez = Math.sin(a) * len, ey = by + 2 + rnd() * 2;
+      v.line(0.5, by, 0.5, 0.5 + ex, ey, 0.5 + ez, MT('bark', '#6e4c2a'));
+      blobs.push([0.5 + ex, ey + 1.5, 0.5 + ez, (3 + rnd() * 1.6) * sz]);
+    }
+    blobs.push([0.5, h + 1.5, 0.5, (3.6 + rnd()) * sz]);
+    for (const [bx, by, bz, r] of blobs) {
+      v.ball(bx, by, bz, r, r * 0.72, r, (x, y, z) => {
+        const top = y > by;
+        const g = greens[Math.floor(hash(x >> 1, y >> 1, z >> 1) * 5)];
+        return MT('leaf', shade(g, top ? 1.08 : 0.88));
+      }, (x, y, z) => hash(x, y, z) > 0.08);
+    }
+    if (rnd() < 0.4) for (let k = 0; k < 6; k++) {
+      const [bx, by, bz, r] = blobs[k % blobs.length];
+      const a = rnd() * 6.28;
+      v.set(bx + Math.cos(a) * r * 0.9, by - 0.5, bz + Math.sin(a) * r * 0.9, MT('leaf', rnd() < 0.5 ? '#ff7b3a' : '#ffd23f'));
+    }
     return v;
   }
 
@@ -884,10 +931,30 @@
     const rnd = VC.util.rng(seed || 3);
     const v = new Vox();
     const r = 1.2 + rnd() * 0.9;
-    v.ball(0, 0, 0, r, r * 0.8, r, (x, y, z) => (y > 0 ? ((x + z) & 1 ? '#3f9a3e' : '#47a443') : '#357f34'), (x, y) => y >= 0);
+    v.ball(0, 0, 0, r, r * 0.8, r, (x, y, z) => MT('leaf', y > 0 ? ((x + z) & 1 ? '#3f9a3e' : '#47a443') : '#357f34'), (x, y) => y >= 0);
     if (rnd() < 0.45) {
       const fc = ['#ff6fa8', '#ffd23f', '#ff7b3a', '#b07aff'][(rnd() * 4) | 0];
-      for (let k = 0; k < 4; k++) v.set(Math.round((rnd() - 0.5) * r * 1.6), Math.round(r * 0.7), Math.round((rnd() - 0.5) * r * 1.6), fc);
+      for (let k = 0; k < 4; k++) v.set(Math.round((rnd() - 0.5) * r * 1.6), Math.round(r * 0.7), Math.round((rnd() - 0.5) * r * 1.6), MT('leaf', fc));
+    }
+    return v;
+  }
+  /** Bush in detail (0.125): clustered leaves with berries or blossoms. */
+  function bushHD(seed) {
+    const rnd = VC.util.rng(seed || 3);
+    const v = new Vox();
+    const greens = ['#3f9a3e', '#47a443', '#357f34', '#55b04a'];
+    const n = 2 + (rnd() * 2 | 0);
+    for (let k = 0; k < n; k++) {
+      const bx = (rnd() - 0.5) * 4, bz = (rnd() - 0.5) * 4, r = 2 + rnd() * 1.4;
+      v.ball(bx, 0.5, bz, r, r * 0.8, r, (x, y, z) => MT('leaf', shade(greens[Math.floor(hash(x, y, z) * 4)], y > 1 ? 1.06 : 0.9)), (x, y) => y >= 0);
+    }
+    if (rnd() < 0.6) {
+      const fc = ['#ff6fa8', '#ffd23f', '#ff7b3a', '#b07aff', '#e2553a'][(rnd() * 5) | 0];
+      for (let k = 0; k < 7; k++) {
+        const x = Math.round((rnd() - 0.5) * 6), z = Math.round((rnd() - 0.5) * 6);
+        let y = 6; while (y > 0 && !v.has(x, y - 1, z)) y--;
+        if (y > 0) v.set(x, y, z, MT('leaf', fc));
+      }
     }
     return v;
   }
@@ -895,7 +962,7 @@
   function rock(seed) {
     const rnd = VC.util.rng(seed || 5);
     const v = new Vox();
-    v.ball(0, 0, 0, 2 + rnd() * 2, 1.5 + rnd() * 1.5, 2 + rnd() * 2, () => (rnd() < 0.3 ? '#9a9a96' : '#7f7f7b'), (x, y) => y >= 0);
+    v.ball(0, 0, 0, 2 + rnd() * 2, 1.5 + rnd() * 1.5, 2 + rnd() * 2, (x, y) => MT('rock', rnd() < 0.3 ? '#9a9a96' : (y > 1 && rnd() < 0.25 ? '#7b8b5a' : '#7f7f7b')), (x, y) => y >= 0);
     return v;
   }
 
@@ -904,36 +971,37 @@
     const rnd = VC.util.rng(seed || 4);
     const v = new Vox();
     const fc = [['#ff6fa8', '#ffd23f'], ['#ffffff', '#ffd23f'], ['#b07aff', '#fff2a0'], ['#ff5a3a', '#ffd23f']][(rnd() * 4) | 0];
-    for (let k = 0; k < 7; k++) {
+    for (let k = 0; k < 8; k++) {
       const x = Math.round((rnd() - 0.5) * 7), z = Math.round((rnd() - 0.5) * 7);
       const h = 1 + ((rnd() * 2) | 0);
-      for (let y = 0; y < h; y++) v.set(x, y, z, '#3f8f3a');
-      v.set(x, h, z, fc[0]);
-      if (rnd() < 0.5) { v.set(x + 1, h, z, fc[0]); v.set(x, h + 1, z, fc[1]); }
+      for (let y = 0; y < h; y++) v.set(x, y, z, MT('leaf', '#3f8f3a'));
+      v.set(x, h, z, MT('leaf', fc[0]));
+      if (rnd() < 0.5) { v.set(x + 1, h, z, MT('leaf', fc[0])); v.set(x, h + 1, z, MT('leaf', fc[1])); }
+      if (rnd() < 0.4) v.set(x - 1, 0, z, MT('leaf', '#4fa64a'));
     }
     return v;
   }
   function grass(seed) {
     const rnd = VC.util.rng(seed || 6);
     const v = new Vox();
-    for (let k = 0; k < 6; k++) {
+    for (let k = 0; k < 7; k++) {
       const x = Math.round((rnd() - 0.5) * 5), z = Math.round((rnd() - 0.5) * 5);
       const h = 1 + ((rnd() * 3) | 0);
-      for (let y = 0; y < h; y++) v.set(x, y, z, y === h - 1 ? '#6cc251' : '#4fa64a');
+      for (let y = 0; y < h; y++) v.set(x, y, z, MT('grass', y === h - 1 ? '#6cc251' : '#4fa64a'));
     }
     return v;
   }
   function shells(seed) {
     const rnd = VC.util.rng(seed || 7);
     const v = new Vox();
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; k < 5; k++) {
       const x = Math.round((rnd() - 0.5) * 8), z = Math.round((rnd() - 0.5) * 8);
       const c = ['#ffd1dc', '#fff4e0', '#f2b8a0', '#e0d6ff'][k % 4];
-      v.set(x, 0, z, c); if (rnd() < 0.5) v.set(x + 1, 0, z, shade(c, 0.9));
+      v.set(x, 0, z, MT('stone', c)); if (rnd() < 0.5) v.set(x + 1, 0, z, MT('stone', shade(c, 0.9)));
     }
-    if (rnd() < 0.5) {
+    if (rnd() < 0.6) {
       const x = Math.round((rnd() - 0.5) * 6), z = Math.round((rnd() - 0.5) * 6);
-      v.set(x, 0, z, '#ff8a3a'); v.set(x + 1, 0, z, '#ff8a3a'); v.set(x - 1, 0, z, '#ff8a3a'); v.set(x, 0, z + 1, '#ff8a3a'); v.set(x, 0, z - 1, '#ff8a3a');
+      for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) v.set(x + dx, 0, z + dz, MT('plain', '#ff8a3a'));
     }
     return v;
   }
@@ -941,523 +1009,768 @@
     const rnd = VC.util.rng(seed || 8);
     const v = new Vox();
     const len = 7 + ((rnd() * 5) | 0);
-    for (let x = 0; x < len; x++) v.box(x, 0, Math.round(Math.sin(x * 0.5) * 0.8), x, x % 3 === 0 ? 1 : 0, Math.round(Math.sin(x * 0.5) * 0.8), x % 2 ? '#b59a78' : '#a08664');
-    v.set(len - 2, 1, 2, '#a08664'); v.set(len - 1, 1, 3, '#a08664');
+    for (let x = 0; x < len; x++) v.box(x, 0, Math.round(Math.sin(x * 0.5) * 0.8), x, x % 3 === 0 ? 1 : 0, Math.round(Math.sin(x * 0.5) * 0.8), MT('bark', x % 2 ? '#b59a78' : '#a08664'));
+    v.set(len - 2, 1, 2, MT('bark', '#a08664')); v.set(len - 1, 1, 3, MT('bark', '#a08664'));
     return v;
   }
 
   // ------------------------------------------------------------------ detail kit (0.125 units per voxel)
   // Island models are a "part set": solid voxels, glowing voxels (windows, lamps, fire; lit at night),
-  // cloth (flags and banners for the cloth shader) and smoke emitters (voxel positions):
+  // cloth (flags, banners, awnings for the cloth shader) and smoke emitters (voxel positions):
   //   { v: Vox, g: Vox, cloth: [{ vox, fn }], smoke: [[x, y, z], ...] }
-  // y = 0 is the first layer above the ground; the front (door side) faces +z.
+  // y = 0 is the first layer above the ground; the front (door side) faces +z. Every voxel carries a
+  // surface material (plank, wood, stone, brick, roof, thatch, glass, metal, gold, cloth, leaf…).
   const HD = 0.125;
-  const LAMP = '#ffd36b';
+  const LAMP = '#ffd36b', GLASS = '#f2c46a';
   function parts() { return { v: new Vox(), g: new Vox(), cloth: [], smoke: [] }; }
-  function lit(P, x, y, z, c) { P.v.del(x, y, z); P.g.set(x, y, z, c || LAMP); }
+  function lit(P, x, y, z, c) { P.v.del(x, y, z); P.g.set(x, y, z, MT('glass', c || LAMP)); }
   function hash(x, y, z) { const h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453; return h - Math.floor(h); }
-  const planks = (c) => (x, y) => (y % 2 ? c : shade(c, 0.9));
-  const stone = (c) => (x, y, z) => { const h = hash(x >> 1, y, z >> 1); return h < 0.3 ? shade(c, 0.88) : h > 0.8 ? shade(c, 1.08) : c; };
-  const brick = (c) => (x, y, z) => ((y % 2 === 0 && (x + z) % 4 === 0) || (y % 2 === 1 && (x + z + 2) % 4 === 0) ? shade(c, 0.8) : hash(x, y, z) < 0.2 ? shade(c, 1.08) : c);
-  /** Plaster with a dark timber frame (corner posts, posts every 4 voxels, beams at y0/y1). */
+  const W = c => MT('wood', c);
+  // Surface colour functions (x, y, z) -> tagged colour.
+  /** Horizontal boards with staggered seams (walls, decks). */
+  const planks = (c, len) => (x, y, z) => {
+    len = len || 6;
+    const a = x + z, off = (y * 3) % len;
+    const seam = mod(a + off, len) === 0;
+    return MT('plank', shade(c, (y & 1 ? 0.92 : 1) * (seam ? 0.8 : 0.94 + 0.1 * hash(Math.floor((a + off) / len), y, 7))));
+  };
+  /** Vertical boards (doors, sheds, shacks). */
+  const vplanks = c => (x, y, z) => MT('plank', shade(c, ((x + z) & 1 ? 0.88 : 1) * (0.94 + 0.1 * hash(x + z, y >> 2, 11))));
+  /** Stone blocks (running bond, 4 long and 2 high) with per-block shade. */
+  const stone = (c, m) => (x, y, z) => {
+    const row = y >> 1, a = x + z + (row & 1) * 2;
+    return MT(m || 'stone', shade(c, 0.86 + 0.2 * hash(Math.floor(a / 4), row, 3)));
+  };
+  const brick = c => (x, y, z) => MT('brick', shade(c, 0.84 + 0.24 * hash(Math.floor((x + z + (y & 1)) / 2), y, 5)));
+  const plaster = c => (x, y, z) => MT('plain', shade(c, 0.95 + 0.07 * hash(x, y, z)));
+  const cobble = c => (x, y, z) => MT('cobble', shade(c, 0.82 + 0.28 * hash(x >> 1, z >> 1, y)));
+  const rockC = c => (x, y, z) => MT('rock', shade(c, 0.8 + 0.3 * hash(x >> 1, y >> 1, z >> 1)));
+  /** Plaster with a timber frame: beams at y0 / y1 and posts every 4 voxels along each wall. */
   const timber = (c, beam, x0, x1, z0, z1, y0, y1) => (x, y, z) => {
-    if (y === y0 || y === y1) return beam;
+    if (y === y0 || y === y1) return W(beam);
     const onZ = z === z0 || z === z1, onX = x === x0 || x === x1;
-    if ((onZ && (x - x0) % 4 === 0) || (onX && (z - z0) % 4 === 0) || (onZ && onX)) return beam;
-    return c;
+    if ((onZ && mod(x - x0, 4) === 0) || (onX && mod(z - z0, 4) === 0) || (onZ && onX)) return W(beam);
+    if (onZ && mod(x - x0, 4) === 2 && y === ((y0 + y1) >> 1)) return W(shade(beam, 1.1));
+    return MT('plain', shade(c, 0.95 + 0.07 * hash(x, y, z)));
   };
 
-  /** Solid block with a surface colour function. */
+  /** Solid block with a colour or a colour function. */
   function block(P, x0, y0, z0, x1, y1, z1, c) {
-    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) P.v.set(x, y, z, typeof c === 'function' ? c(x, y, z) : c);
+    for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++)
+      for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++) P.v.set(x, y, z, typeof c === 'function' ? c(x, y, z) : c);
   }
-  /** Window in a wall facing +z (dir 1) or -z: lit panes, frame, sill, optional shutters. */
-  function winZ(P, x, y, z, w, h, frame, shutter, glass) {
+  /** Dark corner posts and beams around a box (flush with the walls). */
+  function frameBox(P, x0, z0, x1, z1, y0, y1, c) {
+    const b = W(c || '#4a3020');
+    for (let y = y0; y <= y1; y++) for (const [x, z] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) P.v.set(x, y, z, b);
+    for (let x = x0; x <= x1; x++) { P.v.set(x, y1, z0, b); P.v.set(x, y1, z1, b); P.v.set(x, y0, z0, b); P.v.set(x, y0, z1, b); }
+    for (let z = z0; z <= z1; z++) { P.v.set(x0, y1, z, b); P.v.set(x1, y1, z, b); P.v.set(x0, y0, z, b); P.v.set(x1, y0, z, b); }
+  }
+  /**
+   * Window in a wall facing +z (o.s = 1, default) or -z (o.s = -1): frame, cross mullions on big
+   * windows, glass that lights up at night, a sill; optional open shutters and a flower box.
+   */
+  function winZ(P, x, y, z, w, h, o) {
+    o = o || {};
+    const s = o.s || 1, fr = W(o.frame || '#5a3a1e');
     for (let i = -1; i <= w; i++) for (let j = -1; j <= h; j++) {
-      const pane = i >= 0 && i < w && j >= 0 && j < h && !(w >= 3 && i === 1) && !(h >= 3 && j === 1);
-      if (pane) lit(P, x + i, y + j, z, glass || LAMP);
-      else P.v.set(x + i, y + j, z, frame);
+      const inside = i >= 0 && i < w && j >= 0 && j < h;
+      const mull = inside && ((w >= 3 && i === (w >> 1)) || (h >= 3 && j === (h >> 1)));
+      if (inside && !mull) lit(P, x + i, y + j, z, o.glass || GLASS);
+      else P.v.set(x + i, y + j, z, fr);
     }
-    P.v.box(x - 1, y - 1, z + 1, x + w, y - 1, z + 1, frame);
-    if (shutter) for (let j = 0; j < h; j++) { P.v.set(x - 1, y + j, z + 1, shutter); P.v.set(x + w, y + j, z + 1, shutter); }
+    for (let i = -1; i <= w; i++) P.v.set(x + i, y - 1, z + s, W(o.sill || shade(o.frame || '#5a3a1e', 1.15)));
+    if (o.shutter) for (let j = 0; j < h; j++) {
+      const c = W(shade(o.shutter, j & 1 ? 0.88 : 1));
+      P.v.set(x - 2, y + j, z, c); P.v.set(x + w + 1, y + j, z, c);
+      if (w >= 2) { P.v.set(x - 2, y + j, z + s, c); P.v.set(x + w + 1, y + j, z + s, c); }
+    }
+    if (o.flowers) for (let i = 0; i < w; i++) {
+      P.v.set(x + i, y - 2, z + s, W('#6b4a2e'));
+      P.v.set(x + i, y - 1, z + s * 2, MT('leaf', i % 2 ? o.flowers : '#4fa64a'));
+    }
   }
-  /** Window in a wall facing +x (dir 1) or -x (dir -1). */
-  function winX(P, x, y, z, w, h, frame, dir, glass) {
+  /** Window in a wall facing +x (s = 1) or -x (s = -1). */
+  function winX(P, x, y, z, w, h, o) {
+    o = o || {};
+    const s = o.s || 1, fr = W(o.frame || '#5a3a1e');
     for (let i = -1; i <= w; i++) for (let j = -1; j <= h; j++) {
-      const pane = i >= 0 && i < w && j >= 0 && j < h;
-      if (pane) lit(P, x, y + j, z + i, glass || LAMP);
-      else P.v.set(x, y + j, z + i, frame);
+      const inside = i >= 0 && i < w && j >= 0 && j < h;
+      const mull = inside && ((w >= 3 && i === (w >> 1)) || (h >= 3 && j === (h >> 1)));
+      if (inside && !mull) lit(P, x, y + j, z + i, o.glass || GLASS);
+      else P.v.set(x, y + j, z + i, fr);
     }
-    P.v.box(x + dir, y - 1, z - 1, x + dir, y - 1, z + w, frame);
+    for (let i = -1; i <= w; i++) P.v.set(x + s, y - 1, z + i, W(shade(o.frame || '#5a3a1e', 1.15)));
+    if (o.shutter) for (let j = 0; j < h; j++) { const c = W(shade(o.shutter, j & 1 ? 0.88 : 1)); P.v.set(x, y + j, z - 2, c); P.v.set(x, y + j, z + w + 1, c); }
   }
-  /** Door in a wall facing +z, with frame and knob. */
-  function doorZ(P, x, z, w, h, c, frame, y0) {
-    y0 = y0 || 0;
+  /** Door in a wall facing +z: vertical boards, frame, iron bands, handle, a step in front. */
+  function doorZ(P, x, y, z, w, h, o) {
+    o = o || {};
+    const c = o.c || '#6b4423', fr = W(o.frame || '#4a3020');
     for (let i = -1; i <= w; i++) for (let j = 0; j <= h; j++) {
-      if (i >= 0 && i < w && j < h) P.v.set(x + i, y0 + j, z, i % 2 ? c : shade(c, 0.85));
-      else P.v.set(x + i, y0 + j, z, frame);
+      const inside = i >= 0 && i < w && j < h;
+      if (inside) P.v.set(x + i, y + j, z, (j === 1 || j === h - 2) && o.bands !== false ? MT('metal', '#3a3634') : MT('plank', shade(c, (i & 1 ? 0.86 : 1) * (0.95 + 0.08 * hash(i, j, 3)))));
+      else P.v.set(x + i, y + j, z, fr);
     }
-    P.v.set(x + w - 1, y0 + Math.floor(h / 2), z + 1, '#f0c03a');
+    P.v.set(x + w - 1, y + (h >> 1), z + 1, MT('gold', o.knob || '#e0b04a'));
+    if (o.step !== false && y === 0) for (let i = -1; i <= w; i++) P.v.set(x + i, 0, z + 1, MT('stone', '#9a948a'));
+    else if (o.step !== false) for (let i = -1; i <= w; i++) P.v.set(x + i, y - 1, z + 1, MT('stone', '#9a948a'));
   }
-  function tileC(c1, c2, x, k) { const c = k & 1 ? c1 : c2; return (x + (k & 1) * 2) % 4 === 0 ? shade(c, 0.85) : c; }
-  /** Gable roof with the ridge along x (the tiled slope faces the camera). Returns the ridge layer. */
-  function roofX(P, x0, x1, z0, z1, y, c1, c2, gable, over) {
-    over = over === undefined ? 1 : over;
-    let k = 0;
+  const tileOf = (c1, c2, m) => (row, a) => {
+    const c = row & 1 ? c1 : c2;
+    const ti = Math.floor((a + (row & 1)) / 2);
+    return MT(m || 'roof', shade(c, (mod(a + (row & 1), 2) === 0 ? 0.9 : 1) * (0.92 + 0.14 * hash(ti, row, 13))));
+  };
+  /**
+   * Gable roof over [x0..x1] x [z0..z1] from layer y. axis 'x' puts the ridge along x (the slopes face
+   * ±z, toward the camera), 'z' puts a gable end toward the camera. o: { c1, c2, mat, over (eaves),
+   * rise (layers per step), gable (colour fn for the gable walls), ridge, eave }. Returns the top layer.
+   */
+  function gable(P, x0, x1, z0, z1, y, axis, o) {
+    const over = o.over === undefined ? 1 : o.over, rise = o.rise || 1;
+    const along = axis !== 'z';
+    const a0 = along ? x0 : z0, a1 = along ? x1 : z1, b0 = along ? z0 : x0, b1 = along ? z1 : x1;
+    const put = (a, yy, b, c) => (along ? P.v.set(a, yy, b, c) : P.v.set(b, yy, a, c));
+    const tile = tileOf(o.c1, o.c2 || shade(o.c1, 0.9), o.mat);
+    const ridge = MT(o.mat || 'roof', o.ridge || shade(o.c1, 0.7));
+    const eave = MT('wood', o.eave || shade(o.c1, 0.6));
+    const gc = typeof o.gable === 'function' ? o.gable : (() => MT('plank', o.gable || '#8a5a32'));
+    let k = 0, topY = y;
     for (;; k++) {
-      const za = z0 - over + k, zb = z1 + over - k;
-      if (za > zb) break;
-      for (let x = x0 - over; x <= x1 + over; x++) {
-        const t = za === zb || za + 1 === zb ? shade(c1, 0.72) : tileC(c1, c2, x, k);
-        P.v.set(x, y + k, za, t); P.v.set(x, y + k, zb, t);
-        if (x >= x0 && x <= x1) for (let z = za + 1; z < zb; z++) P.v.set(x, y + k, z, (x === x0 || x === x1) && gable ? gable : c1);
+      const ba = b0 - over + k, bb = b1 + over - k;
+      if (ba > bb) break;
+      const isRidge = ba >= bb - 1;
+      for (let r = 0; r < rise; r++) {
+        const yy = y + k * rise + r;
+        topY = yy;
+        for (let a = a0 - over; a <= a1 + over; a++) {
+          const t = isRidge ? ridge : (k === 0 && r === 0 && over > 0 ? eave : tile(k * rise + r, a));
+          put(a, yy, ba, t); put(a, yy, bb, t);
+          if (a >= a0 && a <= a1) for (let b = ba + 1; b < bb; b++) put(a, yy, b, (a === a0 || a === a1) ? (along ? gc(a, yy, b) : gc(b, yy, a)) : tile(0, a));
+        }
       }
+      if (isRidge) break;
     }
-    return y + k - 1;
+    return topY;
   }
-  /** Gable roof with the ridge along z (a gable end faces the camera). */
-  function roofZ(P, x0, x1, z0, z1, y, c1, c2, gable, over) {
-    over = over === undefined ? 1 : over;
-    let k = 0;
-    for (;; k++) {
-      const xa = x0 - over + k, xb = x1 + over - k;
-      if (xa > xb) break;
-      for (let z = z0 - over; z <= z1 + over; z++) {
-        const t = xa === xb || xa + 1 === xb ? shade(c1, 0.72) : tileC(c1, c2, z, k);
-        P.v.set(xa, y + k, z, t); P.v.set(xb, y + k, z, t);
-        if (z >= z0 && z <= z1) for (let x = xa + 1; x < xb; x++) P.v.set(x, y + k, z, (z === z0 || z === z1) && gable ? gable : c1);
-      }
-    }
-    return y + k - 1;
-  }
-  /** Hipped / pyramid roof. */
-  function roofHip(P, x0, x1, z0, z1, y, c1, c2, over) {
-    over = over === undefined ? 1 : over;
-    let k = 0;
+  /** Hipped / pyramid roof (tiles on every side). */
+  function hip(P, x0, x1, z0, z1, y, o) {
+    const over = o.over === undefined ? 1 : o.over, rise = o.rise || 1;
+    const tile = tileOf(o.c1, o.c2 || shade(o.c1, 0.9), o.mat);
+    let k = 0, topY = y;
     for (;; k++) {
       const xa = x0 - over + k, xb = x1 + over - k, za = z0 - over + k, zb = z1 + over - k;
       if (xa > xb || za > zb) break;
-      for (let x = xa; x <= xb; x++) for (let z = za; z <= zb; z++) {
-        const edge = x === xa || x === xb || z === za || z === zb;
-        P.v.set(x, y + k, z, edge ? tileC(c1, c2, x + z, k) : c1);
+      for (let r = 0; r < rise; r++) {
+        const yy = y + k * rise + r;
+        topY = yy;
+        for (let x = xa; x <= xb; x++) for (let z = za; z <= zb; z++) {
+          const edge = x === xa || x === xb || z === za || z === zb;
+          const corner = (x === xa || x === xb) && (z === za || z === zb);
+          P.v.set(x, yy, z, corner ? MT(o.mat || 'roof', o.ridge || shade(o.c1, 0.72)) : edge ? tile(k * rise + r, x + z) : tile(1, x));
+        }
       }
     }
-    return y + k - 1;
+    return topY;
   }
   function chimney(P, x, z, y0, y1, c) {
-    block(P, x, y0, z, x + 1, y1, z + 1, stone(c || '#8c8c88'));
-    P.v.box(x - 0, y1 + 1, z, x + 1, y1 + 1, z + 1, '#3a3a3a');
+    block(P, x, y0, z, x + 1, y1, z + 1, brick(c || '#9a5a46'));
+    block(P, x - 1, y1 + 1, z - 1, x + 2, y1 + 1, z + 2, MT('stone', '#6e6e6a'));
+    P.v.set(x, y1 + 1, z, MT('plain', '#1a1a1a')); P.v.set(x + 1, y1 + 1, z + 1, MT('plain', '#1a1a1a'));
+    P.v.set(x + 1, y1 + 1, z, MT('plain', '#222')); P.v.set(x, y1 + 1, z + 1, MT('plain', '#222'));
     P.smoke.push([x + 1, y1 + 2, z + 1]);
   }
-  function barrel(P, x, y, z, c) {
+  /** Barrel 3x3 (or 2x2 when small) with iron hoops. */
+  function barrel(P, x, y, z, c, small) {
     c = c || '#8a5a32';
-    for (let yy = 0; yy < 4; yy++) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
-      if (dx && dz && (yy === 0 || yy === 3)) continue;
-      P.v.set(x + dx, y + yy, z + dz, yy === 1 || yy === 3 ? '#5a5048' : ((dx + dz) & 1 ? c : shade(c, 0.86)));
+    const n = small ? 2 : 3, hgt = small ? 3 : 4;
+    for (let yy = 0; yy < hgt; yy++) for (let dx = 0; dx < n; dx++) for (let dz = 0; dz < n; dz++) {
+      if (n === 3 && dx !== 1 && dz !== 1 && (yy === 0 || yy === hgt - 1)) continue;
+      const hoop = yy === 1 || yy === hgt - 1 || (n === 3 && yy === 2 && false);
+      P.v.set(x + dx, y + yy, z + dz, hoop ? MT('metal', '#4a4440') : MT('plank', shade(c, (dx + dz) & 1 ? 1 : 0.86)));
     }
+    if (n === 3) P.v.set(x + 1, y + hgt - 1, z + 1, MT('wood', shade(c, 0.7)));
   }
+  /** Crate with a darker frame. */
   function crate(P, x, y, z, n, c) {
     n = n || 3; c = c || '#a0703c';
     for (let dx = 0; dx < n; dx++) for (let dy = 0; dy < n; dy++) for (let dz = 0; dz < n; dz++) {
       const e = (dx === 0 || dx === n - 1) + (dy === 0 || dy === n - 1) + (dz === 0 || dz === n - 1);
-      P.v.set(x + dx, y + dy, z + dz, e >= 2 ? shade(c, 0.72) : c);
+      P.v.set(x + dx, y + dy, z + dz, e >= 2 ? W(shade(c, 0.66)) : MT('plank', shade(c, (dx + dy + dz) & 1 ? 1 : 0.92)));
     }
   }
   function sack(P, x, y, z, c) {
     c = c || '#c9b07a';
-    P.v.box(x, y, z, x + 1, y + 1, z + 1, c); P.v.set(x, y + 2, z, shade(c, 0.85));
+    P.v.box(x, y, z, x + 1, y + 1, z + 1, MT('cloth', c)); P.v.set(x, y + 2, z, MT('cloth', shade(c, 0.85)));
+    P.v.set(x + 1, y + 2, z + 1, MT('cloth', shade(c, 0.9)));
   }
-  /** Lantern on a post (or hanging when h is 0): dark cap, lit glass. */
+  /** Lantern on a post of height h (h = 0: wall lantern): iron cap and base, lit glass. */
   function lamp(P, x, y, z, h, c) {
-    for (let k = 0; k < h; k++) P.v.set(x, y + k, z, '#4a3a2a');
-    lit(P, x, y + h, z, c || LAMP);
-    P.v.set(x, y + h + 1, z, '#2a2a2a');
+    for (let k = 0; k < h; k++) P.v.set(x, y + k, z, W('#3a2a1a'));
+    P.v.set(x, y + h, z, MT('metal', '#2a2a2a'));
+    lit(P, x, y + h + 1, z, c || LAMP);
+    P.v.set(x, y + h + 2, z, MT('metal', '#2a2a2a'));
   }
   function torch(P, x, y, z, h) {
-    for (let k = 0; k < h; k++) P.v.set(x, y + k, z, '#6b4423');
+    for (let k = 0; k < h; k++) P.v.set(x, y + k, z, W('#6b4423'));
     lit(P, x, y + h, z, '#ff9a2a'); lit(P, x, y + h + 1, z, '#ffd23f');
   }
-  /** Pole with a cloth flag extending toward -x. */
+  /** Pole with a cloth flag extending toward -x; c2 draws a small cross/skull mark. */
   function flag(P, x, y0, z, h, w, fh, c, c2) {
-    for (let k = 0; k <= h; k++) P.v.set(x, y0 + k, z, '#5a3a1e');
-    P.v.set(x, y0 + h + 1, z, '#f0c03a');
+    for (let k = 0; k <= h; k++) P.v.set(x, y0 + k, z, W('#5a3a1e'));
+    P.v.set(x, y0 + h + 1, z, MT('gold', '#f0c03a'));
     const f = new Vox();
     const mi = Math.ceil(w / 2), mj = Math.floor(fh / 2);
     for (let i = 1; i <= w; i++) for (let j = 0; j < fh; j++) {
       const mark = c2 && ((i === mi && (j === mj || j === mj - 1)) || (j === mj && Math.abs(i - mi) === 1));
-      f.set(x - i, y0 + h - j, z, mark ? c2 : c);
+      f.set(x - i, y0 + h - j, z, MT('cloth', mark ? c2 : c));
     }
     P.cloth.push({ vox: f, fn: flagWeight(x, 0.016) });
     return f;
   }
-  /** Fence along x or z between two points (inclusive), posts every 3. */
+  /** Hanging banner on a wall facing +z (cloth, gently swaying). */
+  function banner(P, x, y, z, w, h, c, c2) {
+    const f = new Vox();
+    for (let i = 0; i < w; i++) for (let j = 0; j < h; j++) {
+      if (j === h - 1 && i === (w >> 1)) continue;
+      const edge = i === 0 || i === w - 1;
+      f.set(x + i, y - j, z, MT('cloth', c2 && (edge || j === 1) ? c2 : c));
+    }
+    for (let i = -1; i <= w; i++) P.v.set(x + i, y + 1, z, W('#4a3020'));
+    P.cloth.push({ vox: f, fn: (vx, vy, vz, cx, cy) => [0, 0, 0.012 * Math.max(0, y + 1 - cy)] });
+  }
+  /** Striped cloth awning sloping down toward +z (s = 1) over [x0..x1], from z0 (at y) out to z1. */
+  function awning(P, x0, x1, z0, z1, y, c1, c2) {
+    const f = new Vox();
+    const n = Math.abs(z1 - z0);
+    for (let k = 0; k <= n; k++) {
+      const z = z0 + Math.sign(z1 - z0) * k, yy = y - Math.floor(k / 2);
+      for (let x = x0; x <= x1; x++) f.set(x, yy, z, MT('cloth', mod(x - x0, 4) < 2 ? c1 : c2));
+      if (k === n) for (let x = x0; x <= x1; x++) if (mod(x - x0, 2) === 0) f.set(x, yy - 1, z, MT('cloth', mod(x - x0, 4) < 2 ? c1 : c2));
+    }
+    P.cloth.push({ vox: f, fn: (vx, vy, vz, cx, cy, cz) => [0, 0, 0.006 * Math.abs(cz - z0)] });
+  }
+  /** Fence between two points (inclusive) with posts every 3 and two rails. */
   function fence(P, x0, z0, x1, z1, y, c) {
     c = c || '#8a6238';
     const n = Math.max(Math.abs(x1 - x0), Math.abs(z1 - z0));
     for (let i = 0; i <= n; i++) {
       const x = Math.round(x0 + (x1 - x0) * i / n), z = Math.round(z0 + (z1 - z0) * i / n);
-      if (i % 3 === 0) P.v.box(x, y, z, x, y + 3, z, shade(c, 0.85));
-      P.v.set(x, y + 1, z, c); P.v.set(x, y + 3, z, c);
+      if (i % 3 === 0) { P.v.box(x, y, z, x, y + 3, z, W(shade(c, 0.8))); P.v.set(x, y + 4, z, W(shade(c, 0.7))); }
+      P.v.set(x, y + 1, z, W(c)); P.v.set(x, y + 3, z, W(shade(c, 1.08)));
     }
   }
-  function seal(P, x, y, z, c, face) {
-    // round emblem 5x5 (coin, rosette) on a wall facing +z
+  /** Round emblem (coin, rosette) on a wall facing +z. */
+  function seal(P, x, y, z, c) {
     for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) {
       if (Math.abs(i) + Math.abs(j) > 3) continue;
-      P.v.set(x + i, y + j, z, Math.abs(i) + Math.abs(j) === 3 || (i === 0 && j === 0) ? shade(c, 0.75) : c);
+      P.v.set(x + i, y + j, z, MT('gold', Math.abs(i) + Math.abs(j) === 3 || (i === 0 && j === 0) ? shade(c, 0.75) : c));
     }
+  }
+  /** Hanging shop sign on an iron bracket sticking out of a wall facing +z; `icon` draws on it. */
+  function sign(P, x, y, z, c, icon) {
+    for (let i = 0; i <= 3; i++) P.v.set(x, y, z + i, MT('metal', '#2a2a2a'));
+    P.v.set(x, y - 1, z + 1, MT('metal', '#2a2a2a'));
+    for (let j = 1; j <= 4; j++) for (let i = 1; i <= 3; i++) P.v.set(x, y - j, z + i, MT('plank', shade(c, j & 1 ? 1 : 0.9)));
+    if (icon) icon.forEach(([dj, di, ic]) => { P.v.set(x + 1, y - dj, z + di, MT('plain', ic)); P.v.set(x - 1, y - dj, z + di, MT('plain', ic)); });
+  }
+  /** Coil of rope lying on the ground. */
+  function rope(P, x, y, z) {
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (dx || dz) P.v.set(x + dx, y, z + dz, MT('cloth', (dx + dz) & 1 ? '#c8b48a' : '#b09a70'));
+    P.v.set(x, y + 1, z + 1, MT('cloth', '#c8b48a'));
+  }
+  /** Small cannon on a carriage pointing +z. */
+  function gun(P, x, y, z) {
+    P.v.box(x - 1, y, z, x + 1, y, z + 2, W('#5a3a1e'));
+    P.v.set(x - 1, y, z - 1, W('#3a2614')); P.v.set(x + 1, y, z - 1, W('#3a2614'));
+    for (let k = -1; k <= 3; k++) P.v.set(x, y + 1, z + k, MT('metal', k === 3 ? '#1a1a1a' : '#2b2b2e'));
+  }
+  /** Keeps a part set inside the plot cell: voxels outside x/z in [lo, hi] are cut away. */
+  function fitCell(P, lo, hi) {
+    const clip = vox => {
+      const out = new Vox();
+      vox.each((x, y, z, c) => { if (x >= lo && x <= hi && z >= lo && z <= hi) out.set(x, y, z, c); });
+      return out;
+    };
+    const inside = vox => vox.minX >= lo && vox.maxX <= hi && vox.minZ >= lo && vox.maxZ <= hi;
+    if (!inside(P.v)) P.v = clip(P.v);
+    if (P.g.count && !inside(P.g)) P.g = clip(P.g);
+    P.cloth = P.cloth.map(c => (inside(c.vox) ? c : { vox: clip(c.vox), fn: c.fn })).filter(c => c.vox.count);
+    P.smoke = P.smoke.filter(([x, , z]) => x >= lo && x <= hi + 1 && z >= lo && z <= hi + 1);
+    return P;
   }
 
   // ------------------------------------------------------------------ buildings (footprint x,z in -7..6, door to +z)
+  // Bodies stay in -7..6 (the 1.75-unit plot bed); eaves, signs and props may reach -8..7. Everything
+  // outside is clipped (fitCell), so a building never reaches into the neighbouring plot.
   const BUILD = {
     hut(P) {
       const v = P.v;
       // plank platform on stilts
-      block(P, -7, 1, -5, 3, 1, 4, (x) => (x % 2 ? '#9a6b3e' : '#8a5a32'));
-      for (const [x, z] of [[-7, -5], [3, -5], [-7, 4], [3, 4], [-2, 4], [-2, -5]]) v.set(x, 0, z, '#5a3a1e');
-      // shack
-      block(P, -6, 2, -4, 2, 8, 1, planks('#a0703c'));
-      for (const [x, z] of [[-6, -4], [2, -4], [-6, 1], [2, 1]]) v.box(x, 2, z, x, 9, z, '#6b4a2e');
-      doorZ(P, -4, 1, 2, 5, '#5a3a1e', '#6b4a2e', 2);
-      winZ(P, -1, 5, 1, 2, 2, '#6b4a2e', '#3f7fae');
-      roofX(P, -6, 2, -4, 1, 9, '#c9a24a', '#d9b45a', '#a0703c', 1);
-      // drying nets on poles
-      v.box(5, 0, -5, 5, 9, -5, '#6b4a2e'); v.box(5, 0, 3, 5, 9, 3, '#6b4a2e');
-      v.box(5, 9, -4, 5, 9, 2, '#6b4a2e');
-      for (let z = -4; z <= 2; z++) for (let y = 3; y <= 8; y++) if ((y + z) % 2 === 0) v.set(5, y, z, '#d8d0b0');
-      v.set(5, 5, -1, '#9ab8c8'); v.set(5, 4, 1, '#c87a3a');
+      block(P, -7, 2, -6, 3, 2, 4, (x, y, z) => MT('plank', shade('#9a6b3e', (x & 1 ? 0.9 : 1) * (0.94 + 0.1 * hash(x, z >> 2, 1)))));
+      for (const [x, z] of [[-7, -6], [3, -6], [-7, 4], [3, 4], [-2, 4], [-2, -6]]) v.box(x, 0, z, x, 1, z, MT('bark', '#5a3a1e'));
+      for (let x = -7; x <= 3; x++) v.set(x, 1, 4, W('#6b4423'));
+      // shack of weathered vertical boards
+      block(P, -6, 3, -5, 2, 9, 1, vplanks('#a87a4a'));
+      frameBox(P, -6, -5, 2, 1, 3, 9, '#5a3a1e');
+      doorZ(P, -5, 3, 1, 2, 5, { c: '#5a3a1e', step: false });
+      winZ(P, -1, 5, 1, 2, 2, { shutter: '#3f7fae' });
+      winX(P, 2, 5, -3, 2, 2, { shutter: '#3f7fae' });
+      gable(P, -6, 2, -5, 1, 10, 'x', { c1: '#c9a24a', c2: '#b8913c', mat: 'thatch', over: 1, gable: vplanks('#9a6b3e'), ridge: '#8a6a2a' });
+      // porch rail, ladder
+      for (let x = -1; x <= 3; x += 2) v.box(x, 3, 4, x, 4, 4, W('#6b4423'));
+      for (let x = -1; x <= 3; x++) v.set(x, 5, 4, W('#8a6238'));
+      for (let y = 0; y <= 2; y++) { v.set(-6, y, 5, W('#7a5530')); v.set(-4, y, 5, W('#7a5530')); if (y !== 2) v.set(-5, y, 5, W('#9a7044')); }
+      // drying net on poles, hanging fish
+      v.box(5, 0, -5, 5, 10, -5, MT('bark', '#6b4a2e')); v.box(5, 0, 3, 5, 10, 3, MT('bark', '#6b4a2e'));
+      v.box(5, 10, -4, 5, 10, 2, W('#6b4a2e'));
+      for (let z = -4; z <= 2; z++) for (let y = 3; y <= 9; y++) if ((y + z) % 2 === 0) v.set(5, y - (Math.abs(z + 1) < 2 && y < 5 ? 1 : 0), z, MT('cloth', '#d8d0b0'));
+      v.set(5, 6, -1, MT('plain', '#9ab8c8')); v.set(5, 5, 1, MT('plain', '#c87a3a')); v.set(5, 7, -3, MT('cloth', '#e8b04a'));
+      for (const z of [-4, -2, 0]) { v.set(3, 8, z, MT('metal', '#9ab8c8')); v.set(3, 7, z, MT('metal', '#b8c8d0')); }
       // rowboat pulled up in front
-      v.box(-1, 0, 5, 5, 0, 5, '#2f6bc0'); v.box(0, 1, 4, 4, 1, 4, '#2f6bc0'); v.box(0, 1, 6, 4, 1, 6, '#2f6bc0');
-      v.box(-1, 1, 5, -1, 1, 5, '#2f6bc0'); v.box(5, 1, 5, 5, 2, 5, '#2f6bc0'); v.box(1, 0, 5, 3, 0, 5, '#6b4a2e');
-      v.line(1, 1, 5, 4, 3, 2, '#c8a26a');
-      // barrel, crate, hanging fish, lantern
-      barrel(P, -6, 2, 3); crate(P, -7, 0, 5, 2);
-      for (const z of [-3, -1]) { v.set(3, 6, z, '#9ab8c8'); v.set(3, 5, z, '#9ab8c8'); }
-      lamp(P, -5, 7, 2, 0);
+      for (let x = 0; x <= 6; x++) {
+        const w = x === 0 || x === 6 ? 0 : 1;
+        for (let z = 5 - w; z <= 5 + w; z++) v.set(x, 0, z, MT('plank', '#2f6bc0'));
+        if (w) { v.set(x, 1, 4, MT('plank', '#2f6bc0')); v.set(x, 1, 6, MT('plank', '#2f6bc0')); v.set(x, 1, 5, MT('plank', '#8a5a32')); }
+      }
+      v.set(0, 1, 5, MT('plank', '#e9e3d2')); v.set(6, 1, 5, MT('plank', '#e9e3d2')); v.set(6, 2, 5, MT('plank', '#e9e3d2'));
+      v.line(2, 2, 5, 5, 3, 3, W('#c8a26a'));
+      // barrel and crab trap on the porch, lantern by the door
+      barrel(P, 0, 3, 2, '#8a5a32', true); crate(P, -7, 0, 5, 2, '#9a7a50');
+      lamp(P, -2, 7, 2, 0);
+      rope(P, -5, 3, 3);
     },
     grove(P) {
       const v = P.v;
-      for (let x = -6; x <= 5; x++) for (let z = -6; z <= 5; z++) if (hash(x, 0, z) < 0.18) v.set(x, 0, z, hash(z, 1, x) < 0.5 ? '#4fa64a' : '#7a5a3a');
-      [[palmHD(17, 11), -4, -4], [palmHD(13, 12), 3, -3], [palmHD(15, 13), -3, 3], [palmHD(11, 14), 3, 3]].forEach(([p, ox, oz]) => v.paste(p, ox, 0, oz));
-      // coconut pile, baskets, sign
-      for (const [x, z] of [[0, 2], [1, 2], [0, 3], [1, 1], [0, 1]]) v.set(x, 0, z, '#6b4a2e');
-      v.set(0, 1, 2, '#5a3a1e'); v.set(1, 1, 2, '#6b4a2e');
-      v.box(-1, 0, 5, 1, 1, 6, '#c9a24a'); v.box(0, 2, 5, 0, 2, 6, '#6b4a2e');
-      v.box(5, 0, 5, 5, 3, 5, '#6b4a2e'); v.box(4, 3, 5, 6, 4, 5, '#c8a26a'); v.set(5, 4, 6, '#6b4a2e');
-      // a ladder leaning on the big palm
-      v.line(-6, 0, -2, -5, 9, -3, '#8a6238');
+      for (let x = -7; x <= 6; x++) for (let z = -7; z <= 6; z++) {
+        const h = hash(x, 0, z);
+        if (h < 0.14) v.set(x, 0, z, MT('grass', hash(z, 1, x) < 0.5 ? '#4fa64a' : '#6cc251'));
+        else if (h < 0.2) v.set(x, 0, z, MT('dirt', '#7a5a3a'));
+      }
+      // compact palms: their crowns stay inside the plot
+      [[palmHD(19, 11, 6), -4, -4], [palmHD(15, 12, 5), 2, -3], [palmHD(13, 13, 5), -3, 2]].forEach(([p, ox, oz]) => v.paste(p, ox, 0, oz));
+      // hammock between two trunks
+      const hm = new Vox();
+      for (let k = 0; k <= 6; k++) {
+        const x = -3 + k, z = -4 + Math.round(k * 0.17), y = 6 - Math.round(Math.sin(k / 6 * Math.PI) * 2);
+        for (let w = 0; w <= 1; w++) hm.set(x, y, z + w, MT('cloth', k % 2 ? '#c8323a' : '#f2efe6'));
+      }
+      P.cloth.push({ vox: hm, fn: (x, y, z, cx) => [0, 0, 0.02 * Math.sin(Math.PI * Math.max(0, Math.min(1, (cx + 3) / 7)))] });
+      // coconut pile, baskets, a sign
+      for (const [x, z, y] of [[2, 2, 0], [3, 2, 0], [2, 3, 0], [3, 3, 0], [2, 2, 1], [4, 2, 0], [3, 3, 1]]) v.set(x, y, z, W(y ? '#5a3a1e' : '#6b4a2e'));
+      for (const [bx, bz] of [[-1, 4], [4, 5]]) {
+        for (let dx = 0; dx <= 2; dx++) for (let dz = 0; dz <= 1; dz++) for (let y = 0; y <= 1; y++) v.set(bx + dx, y, bz + dz, MT('thatch', (dx + y) & 1 ? '#c9a24a' : '#b8913c'));
+        v.set(bx + 1, 2, bz, W('#6b4a2e')); v.set(bx, 2, bz + 1, MT('leaf', '#ffd23f'));
+      }
+      v.box(5, 0, 1, 5, 4, 1, W('#6b4423')); v.box(4, 4, 1, 6, 5, 1, MT('plank', '#c8a26a')); v.set(5, 5, 2, MT('plain', '#3f8f3a'));
+      v.line(-6, 0, -1, -5, 9, -3, W('#8a6238'));
+      for (let y = 2; y <= 8; y += 2) v.set(-6 + (y > 5 ? 1 : 0), y, -1 - Math.round(y / 4.5), W('#a07a4a'));
     },
     smoke(P) {
       const v = P.v;
-      block(P, -6, 0, -5, 3, 4, 1, stone('#8c8c88'));
-      block(P, -6, 5, -5, 3, 9, 1, planks('#8a5a32'));
-      for (const [x, z] of [[-6, -5], [3, -5], [-6, 1], [3, 1]]) v.box(x, 5, z, x, 10, z, '#5a3a1e');
-      roofX(P, -6, 3, -5, 1, 10, '#7a3a26', '#8a4a30', '#8a5a32', 1);
-      chimney(P, 1, -3, 5, 19, '#7e7e7a');
-      doorZ(P, -4, 1, 2, 4, '#4a3020', '#6e6e6a');
-      lit(P, -1, 1, 1, '#ff7a2a'); lit(P, 0, 1, 1, '#ffb13a'); v.set(-2, 1, 1, '#3a3a3a'); v.set(1, 1, 1, '#3a3a3a');
-      winZ(P, -3, 6, 1, 2, 2, '#5a3a1e', null, '#ff9a4a');
-      // fish drying rack
-      v.box(-6, 0, 4, -6, 6, 4, '#6b4a2e'); v.box(4, 0, 4, 4, 6, 4, '#6b4a2e'); v.box(-6, 6, 4, 4, 6, 4, '#6b4a2e');
-      for (let x = -5; x <= 3; x += 2) { v.set(x, 5, 4, '#c8783a'); v.set(x, 4, 4, '#d88a4a'); v.set(x, 3, 4, '#b8682a'); }
-      // firewood stack
-      for (let z = -4; z <= 0; z++) for (let y = 0; y < 3; y++) v.set(5, y, z, (y + z) % 2 ? '#8a5a32' : '#6b4423');
-      v.box(5, 0, -5, 5, 3, -5, '#5a3a1e');
-      barrel(P, -7 + 1, 0, 3, '#7a4a2a');
+      block(P, -6, 0, -5, 3, 3, 1, stone('#8c8c88'));
+      block(P, -6, 4, -5, 3, 9, 1, planks('#8a5a32'));
+      frameBox(P, -6, -5, 3, 1, 4, 9, '#4a3020');
+      gable(P, -6, 3, -5, 1, 10, 'x', { c1: '#5e4c44', c2: '#4e3e38', over: 1, gable: planks('#7a4a2a') });
+      chimney(P, 1, -4, 4, 21, '#7e6e66');
+      block(P, -4, 12, -3, -3, 15, -2, stone('#7e7e7a')); P.v.set(-4, 16, -3, MT('metal', '#2a2a2a')); P.smoke.push([-3, 17, -2]);
+      doorZ(P, -5, 0, 1, 2, 4, { c: '#4a3020' });
+      // fire hatch glowing under the smoking chamber
+      for (let x = -1; x <= 1; x++) { lit(P, x, 1, 1, x === 0 ? '#ffb13a' : '#ff7a2a'); v.set(x, 2, 1, MT('metal', '#2a2a2a')); }
+      v.set(-2, 1, 1, MT('metal', '#3a3a3a')); v.set(2, 1, 1, MT('metal', '#3a3a3a'));
+      winZ(P, -2, 6, 1, 3, 2, { glass: '#ff9a4a', frame: '#4a3020' });
+      // fish drying rack in front
+      v.box(-6, 0, 4, -6, 7, 4, MT('bark', '#6b4a2e')); v.box(4, 0, 4, 4, 7, 4, MT('bark', '#6b4a2e')); v.box(-6, 7, 4, 4, 7, 4, W('#6b4a2e'));
+      for (let x = -5; x <= 3; x += 2) { v.set(x, 6, 4, MT('plain', '#c8783a')); v.set(x, 5, 4, MT('plain', '#d88a4a')); v.set(x, 4, 4, MT('plain', '#b8682a')); v.set(x, 3, 4, MT('plain', '#a85a20')); }
+      // firewood stack: bark sides, pale cut ends
+      for (let z = -5; z <= 0; z++) for (let y = 0; y < 4; y++) for (let x = 5; x <= 6; x++) v.set(x, y, z, x === 6 ? MT('wood', (y + z) & 1 ? '#d8b078' : '#c89a60') : MT('bark', '#6b4423'));
+      v.box(5, 0, -6, 6, 4, -6, MT('bark', '#5a3a1e')); v.box(5, 0, 1, 6, 4, 1, MT('bark', '#5a3a1e'));
+      barrel(P, -7, 0, 2, '#7a4a2a');
+      // stump with an axe
+      v.box(2, 0, 3, 3, 1, 3, MT('bark', '#6b4a2e')); v.set(2, 2, 3, MT('metal', '#9a9a96')); v.set(3, 2, 3, W('#8a6238')); v.set(3, 3, 3, W('#8a6238'));
     },
     tavern(P) {
       const v = P.v;
       block(P, -6, 0, -5, 5, 6, 2, stone('#b8ad98'));
-      block(P, -7, 7, -6, 6, 12, 3, timber('#efe3c4', '#5a3a1e', -7, 6, -6, 3, 7, 12));
-      const ry = roofX(P, -7, 6, -6, 3, 13, '#b03a2e', '#962f25', '#5a3a1e', 1);
-      chimney(P, -5, -4, 13, ry + 2, '#8c8c88');
-      // dormer
-      block(P, 0, 15, 0, 3, 17, 1, '#efe3c4'); winZ(P, 1, 15, 1, 2, 2, '#5a3a1e'); roofZ(P, 0, 3, 0, 1, 18, '#b03a2e', '#962f25', null, 1);
-      doorZ(P, -1, 2, 3, 5, '#6b4423', '#5a3a1e');
-      v.box(-2, 6, 3, 3, 6, 4, '#8a3020'); // awning
-      winZ(P, -5, 2, 2, 2, 2, '#5a3a1e'); winZ(P, 3, 2, 2, 2, 2, '#5a3a1e');
-      winZ(P, -5, 8, 3, 2, 3, '#5a3a1e', '#2f7a46'); winZ(P, -1, 8, 3, 2, 3, '#5a3a1e', '#2f7a46'); winZ(P, 3, 8, 3, 2, 3, '#5a3a1e', '#2f7a46');
+      // the upper floor juts out over the street on beams
+      for (let x = -6; x <= 5; x += 3) v.set(x, 6, 3, W('#4a3020'));
+      block(P, -7, 7, -6, 6, 13, 3, timber('#efe3c4', '#5a3a1e', -7, 6, -6, 3, 7, 13));
+      const ry = gable(P, -7, 6, -6, 3, 14, 'x', { c1: '#b8402e', c2: '#9a3326', over: 1, gable: timber('#efe3c4', '#5a3a1e', -7, 6, -6, 3, 7, 30) });
+      chimney(P, -5, -4, 14, ry + 2, '#9a5a46');
+      // dormer with its own little roof
+      block(P, 0, 16, 0, 3, 18, 2, plaster('#efe3c4'));
+      winZ(P, 1, 16, 2, 2, 2, { frame: '#5a3a1e' });
+      gable(P, 0, 3, 0, 2, 19, 'z', { c1: '#b8402e', c2: '#9a3326', over: 1, gable: plaster('#efe3c4') });
+      // front: double door under a striped awning, windows with shutters and flower boxes
+      doorZ(P, -1, 0, 2, 3, 5, { c: '#7a4a2a' });
+      awning(P, -3, 3, 3, 5, 6, '#8a2a20', '#efe3c4');
+      winZ(P, -5, 2, 2, 2, 3, { frame: '#5a3a1e' }); winZ(P, 3, 2, 2, 2, 3, { frame: '#5a3a1e' });
+      for (const x of [-5, -1, 3]) winZ(P, x, 9, 3, 2, 3, { frame: '#5a3a1e', shutter: '#2f7a46', flowers: '#ff6fa8' });
       // hanging sign with a mug
-      v.box(6, 9, 4, 8, 9, 4, '#3a2614'); v.box(7, 5, 4, 8, 8, 4, '#6b4423');
-      v.set(7, 6, 5, '#f0c03a'); v.set(7, 7, 5, '#fff4d0'); v.set(8, 6, 5, '#f0c03a'); v.set(8, 7, 5, '#f0c03a');
-      barrel(P, 5, 0, 4); barrel(P, -6, 0, 4, '#7a4a2a');
-      v.box(-4, 0, 5, -2, 1, 5, '#8a5a32'); // bench
-      lamp(P, -2, 4, 3, 0);
+      sign(P, 6, 11, 4, '#7a5530', [[2, 2, '#f0c03a'], [3, 2, '#f0c03a'], [2, 1, '#fff4d0']]);
+      barrel(P, -7, 0, 4); barrel(P, -7, 4, 4, '#7a4a2a', true);
+      v.box(3, 1, 5, 6, 1, 6, W('#8a5a32')); v.set(3, 0, 5, W('#5a3a1e')); v.set(6, 0, 6, W('#5a3a1e')); v.set(3, 0, 6, W('#5a3a1e')); v.set(6, 0, 5, W('#5a3a1e'));
+      v.set(4, 2, 5, MT('metal', '#c8a050')); v.set(5, 2, 6, MT('glass', '#3a7a3a'));
+      lamp(P, -3, 4, 3, 0); lamp(P, 3, 4, 3, 0);
     },
     fort(P) {
       const v = P.v;
       const st = stone('#9a9a96');
-      // curtain walls
       for (let x = -7; x <= 6; x++) for (let z = -7; z <= 6; z++) {
-        if (x > -7 && x < 6 && z > -7 && z < 6) continue;
+        const wall = x <= -6 || x >= 5 || z <= -6 || z >= 5;
+        if (!wall) { v.set(x, 0, z, cobble('#8a857a')(x, 0, z)); continue; }
         for (let y = 0; y <= 5; y++) v.set(x, y, z, st(x, y, z));
-        if ((x + z) % 2 === 0) v.set(x, 6, z, '#8a8a86');
+        const outerEdge = x === -7 || x === 6 || z === -7 || z === 6;
+        if (outerEdge && mod(x + z, 3) !== 0) v.set(x, 6, z, MT('stone', '#a8a8a2'));
       }
-      v.box(-6, 0, -6, 5, 0, 5, '#7a7a76'); // courtyard
       // corner towers
       for (const [x, z] of [[-7, -7], [4, -7], [-7, 4], [4, 4]]) {
         block(P, x, 0, z, x + 2, 9, z + 2, stone('#a8a8a4'));
-        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if ((i + j) % 2 === 0) v.set(x + i, 10, z + j, '#8a8a86');
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if ((i + j) % 2 === 0) v.set(x + i, 10, z + j, MT('stone', '#8a8a86'));
+        v.set(x + 1, 6, z + (z > 0 ? 2 : 0), MT('plain', '#1a1a1a'));
       }
-      // keep
-      block(P, -3, 0, -4, 2, 13, 1, stone('#a8a8a4'));
-      for (let x = -3; x <= 2; x++) for (let z = -4; z <= 1; z++) if ((x === -3 || x === 2 || z === -4 || z === 1) && (x + z) % 2 === 0) v.set(x, 14, z, '#8a8a86');
-      winZ(P, -1, 9, 1, 2, 2, '#6e6e6a', null, '#ffd36b');
-      flag(P, 0, 14, -2, 9, 6, 4, '#111111', '#ffffff');
-      // gate
-      for (let x = -2; x <= 1; x++) for (let y = 0; y <= 3; y++) v.set(x, y, 6, y === 3 && (x === -2 || x === 1) ? '#9a9a96' : '#5a3a1e');
-      v.box(-3, 4, 7, 2, 4, 7, '#8a8a86');
-      // cannons poking out of the front wall
-      for (const x of [-5, 3]) { v.set(x, 6, 6, '#2a2a2a'); v.set(x, 6, 7, '#2a2a2a'); v.set(x, 6, 5, '#5a3a1e'); }
-      torch(P, -3, 4, 7, 1); torch(P, 2, 4, 7, 1);
-      // cannonball pile
-      v.set(-5, 1, -1, '#2a2a2a'); v.set(-4, 1, -1, '#2a2a2a'); v.set(-5, 1, 0, '#2a2a2a'); v.set(-5, 2, -1, '#3a3a3a');
+      // keep with arrow slits and a flag
+      block(P, -3, 0, -4, 2, 13, 1, stone('#b0aea8'));
+      for (let x = -3; x <= 2; x++) for (let z = -4; z <= 1; z++) if ((x === -3 || x === 2 || z === -4 || z === 1) && mod(x + z, 2) === 0) v.set(x, 14, z, MT('stone', '#8a8a86'));
+      for (const x of [-2, 1]) for (let y = 7; y <= 9; y++) v.set(x, y, 1, MT('plain', '#1a1a1a'));
+      winZ(P, -1, 10, 1, 2, 2, { frame: '#6e6e6a', glass: LAMP });
+      flag(P, 0, 14, -2, 9, 7, 5, '#111111', '#ffffff');
+      // gate with studded doors and an arch
+      for (let x = -2; x <= 1; x++) for (let y = 0; y <= 4; y++) {
+        const arch = y === 4 && (x === -2 || x === 1);
+        v.set(x, y, 6, arch ? MT('stone', '#9a9a96') : MT('plank', (x + y) % 3 === 0 ? '#3a3634' : (x & 1 ? '#5a3a1e' : '#4a3020')));
+      }
+      v.box(-3, 5, 7, 2, 5, 7, MT('stone', '#8a8a86'));
+      banner(P, -6, 5, 7, 2, 4, '#1d4f91', '#f0c03a'); banner(P, 4, 5, 7, 2, 4, '#1d4f91', '#f0c03a');
+      // cannons on the walls
+      for (const x of [-5, 3]) { v.set(x, 6, 5, W('#5a3a1e')); v.set(x, 6, 6, MT('metal', '#2a2a2a')); v.set(x, 6, 7, MT('metal', '#1a1a1a')); }
+      gun(P, -1, 6, -6);
+      torch(P, -3, 5, 7, 1); torch(P, 2, 5, 7, 1);
+      for (const [x, z, y] of [[-5, -1, 1], [-4, -1, 1], [-5, 0, 1], [-4, 0, 1], [-5, -1, 2]]) v.set(x, y, z, MT('metal', '#2a2a2a'));
+      crate(P, 3, 1, -4, 2); barrel(P, -5, 1, 2, '#7a4a2a', true);
     },
     distill(P) {
       const v = P.v;
-      // open shed at the back with a lean-to roof
-      block(P, -7, 0, -7, 6, 9, -6, planks('#a0703c'));
-      for (const x of [-7, 6]) v.box(x, 0, -5, x, 9, -5, '#5a3a1e');
-      for (let k = 0; k < 6; k++) for (let x = -8; x <= 7; x++) v.set(x, 10 - Math.floor(k / 2), -7 + k, tileC('#5a3a26', '#4a2e1e', x, k));
-      winZ(P, -5, 4, -5, 2, 2, '#5a3a1e', null, '#ffb15a');
-      // brick furnace with a fire under the copper pot still
-      block(P, -6, 0, -3, -1, 2, 2, brick('#a8503a'));
-      lit(P, -4, 1, 2, '#ff6a2a'); lit(P, -3, 1, 2, '#ffb13a');
-      v.ball(-3.5, 6, -0.5, 3.2, 3.2, 3.2, (x, y, z) => (hash(x, y, z) < 0.18 ? '#ffc890' : y > 7 ? '#f0a060' : '#d8783a'), (x, y) => y >= 3);
-      v.box(-4, 9, -1, -3, 12, 0, '#e0884a'); v.box(-4, 13, -1, -3, 13, 0, '#c8703a');
-      v.line(-3, 13, 0, 3, 10, 0, '#e0884a');
-      // coiled condenser into a barrel
-      for (let y = 3; y <= 9; y++) { const a = y * 1.7; v.set(3 + Math.round(Math.cos(a) * 1.6), y, Math.round(Math.sin(a) * 1.6), '#f0a060'); }
-      v.box(3, 0, 0, 3, 10, 0, '#c8703a');
-      barrel(P, 3, 0, 3, '#7a4a2a');
-      // stacked rum barrels and bottles
-      barrel(P, -6, 0, 5); barrel(P, -3, 0, 5, '#7a4a2a'); barrel(P, -5, 4, 5, '#8a5a32');
-      for (const [x, c] of [[1, '#3a7a3a'], [2, '#7a3a2a'], [0, '#3a7a3a']]) { v.set(x, 0, 6, c); v.set(x, 1, 6, c); v.set(x, 2, 6, '#c8a26a'); }
-      // sign with a bottle
-      v.box(6, 0, 4, 6, 6, 4, '#5a3a1e'); v.box(4, 5, 5, 7, 7, 5, '#c8a26a'); v.box(5, 5, 6, 5, 7, 6, '#3a7a3a'); v.set(5, 8, 6, '#3a7a3a');
-      lamp(P, -1, 6, -5, 0);
+      // brick still house
+      block(P, -7, 0, -7, -1, 8, -1, brick('#a8503a'));
+      frameBox(P, -7, -7, -1, -1, 0, 8, '#6e6e6a');
+      gable(P, -7, -1, -7, -1, 9, 'z', { c1: '#5a3a26', c2: '#4a2e1e', over: 1, gable: brick('#a8503a') });
+      chimney(P, -6, -6, 9, 18, '#7a4a3a');
+      winZ(P, -5, 3, -1, 3, 3, { glass: '#ffb15a', frame: '#4a3020' });
+      doorZ(P, -3, 0, -1, 2, 5, { c: '#5a3a1e' });
+      // open shed with a lean-to roof
+      for (const [x, z] of [[0, -7], [6, -7], [0, -3], [6, -3]]) v.box(x, 0, z, x, 7 + (z < -4 ? 1 : 0), z, W('#5a3a1e'));
+      for (let k = 0; k < 6; k++) for (let x = 0; x <= 7; x++) v.set(x, 9 - (k >> 1), -7 + k, tileOf('#6b4a2e', '#5a3a1e', 'plank')(k, x));
+      for (let x = 1; x <= 5; x += 2) barrel(P, x - 1, 0, -6, x === 3 ? '#7a4a2a' : '#8a5a32');
+      // copper pot still on a fire box, swan neck into the condenser
+      block(P, -6, 0, 1, -2, 2, 5, brick('#8a4030'));
+      lit(P, -4, 1, 5, '#ff6a2a'); lit(P, -3, 1, 5, '#ffb13a'); lit(P, -5, 1, 5, '#ff8a2a');
+      v.ball(-4, 6, 3, 3.2, 3.4, 2.6, (x, y, z) => MT('metal', hash(x, y, z) < 0.15 ? '#ffc890' : y > 7 ? '#f0a060' : '#d8783a'), (x, y) => y >= 3);
+      v.box(-4, 9, 3, -4, 11, 3, MT('metal', '#e0884a')); v.set(-4, 12, 3, MT('metal', '#c8703a'));
+      v.line(-4, 12, 3, 1, 9, 3, MT('metal', '#e0884a'));
+      for (let y = 3; y <= 9; y++) { const a = y * 1.7; v.set(2 + Math.round(Math.cos(a) * 1.6), y, 3 + Math.round(Math.sin(a) * 1.6), MT('metal', '#f0a060')); }
+      v.box(2, 0, 3, 2, 9, 3, MT('metal', '#c8703a'));
+      barrel(P, 1, 0, 5, '#7a4a2a', true);
+      // stacked rum barrels and a crate of bottles
+      barrel(P, 4, 0, 0); barrel(P, 4, 0, 3, '#7a4a2a'); barrel(P, 4, 4, 1, '#8a5a32');
+      crate(P, -7, 0, 4, 3, '#a07a4a');
+      for (const [x, c] of [[-7, '#3a7a3a'], [-6, '#7a3a2a'], [-5, '#3a7a3a']]) { v.set(x, 3, 5, MT('glass', c)); v.set(x, 4, 5, MT('glass', c)); v.set(x, 5, 5, W('#c8a26a')); }
+      sign(P, -1, 8, 0, '#c8a26a', [[2, 2, '#3a7a3a'], [3, 2, '#3a7a3a'], [2, 1, '#3a7a3a']]);
+      lamp(P, -1, 5, -1, 0);
     },
     sugar(P) {
       const v = P.v;
-      // three rows of tall cane
-      for (const z of [-6, -3, 0]) for (let x = -7; x <= 1; x++) {
-        if (hash(x, 3, z) < 0.15) continue;
-        const h = 9 + Math.floor(hash(x, 1, z) * 5);
-        for (let y = 0; y < h; y++) v.set(x, y, z, y % 3 === 2 ? '#5a8a30' : '#7ab648');
-        v.set(x, h, z, '#c9d65a'); v.set(x + (x & 1 ? 1 : -1) * 0, h + 1, z + 1, '#9ac83a');
-        if (x % 2 === 0) v.set(x, h - 2, z + 1, '#9ac83a');
+      // tilled rows of tall cane
+      for (let x = -7; x <= 1; x++) for (let z = -7; z <= 3; z++) v.set(x, 0, z, MT('dirt', z % 3 === 1 ? '#6b4a2e' : '#7a5a3a'));
+      for (const z of [-6, -3, 0, 3]) for (let x = -7; x <= 1; x++) {
+        if (hash(x, 3, z) < 0.12) continue;
+        const h = 9 + Math.floor(hash(x, 1, z) * 6);
+        for (let y = 1; y < h; y++) v.set(x, y, z, MT('leaf', y % 3 === 2 ? '#5a8a30' : y % 3 === 0 ? '#86c050' : '#7ab648'));
+        v.set(x, h, z, MT('leaf', '#c9d65a'));
+        v.set(x, h - 1, z + (x & 1 ? 1 : -1), MT('leaf', '#9ac83a'));
+        if (x % 2 === 0) v.set(x + 1, h - 3, z, MT('leaf', '#8ac040'));
       }
-      for (let x = -7; x <= 1; x++) for (const z of [-5, -2, 1]) v.set(x, 0, z, '#7a5a3a');
       // press shed with a thatched roof
-      block(P, 2, 0, -6, 6, 5, -2, planks('#a0703c'));
-      roofZ(P, 2, 6, -6, -2, 6, '#c9a24a', '#d9b45a', '#a0703c', 1);
-      winZ(P, 3, 2, -2, 2, 2, '#6b4a2e');
-      // round stone mill with a beam
-      v.cyl(3.5, 0, 2.5, 2.2, 1, stone('#9a9a96'));
-      v.box(3, 2, 2, 4, 3, 3, '#7a7a76');
-      v.line(-1, 3, 2, 7, 3, 3, '#6b4423');
-      // cane bundles and a cart
-      for (let k = 0; k < 3; k++) v.box(-6 + k * 2, 0, 4, -6 + k * 2, 1, 6, '#a8c858');
-      v.box(0, 1, 4, 3, 1, 6, '#8a5a32'); v.set(0, 0, 4, '#3a2614'); v.set(0, 0, 6, '#3a2614'); v.set(3, 0, 4, '#3a2614'); v.set(3, 0, 6, '#3a2614');
-      v.box(1, 2, 5, 2, 2, 5, '#c9d65a');
+      block(P, 2, 0, -7, 6, 5, -3, vplanks('#a0703c'));
+      frameBox(P, 2, -7, 6, -3, 0, 5, '#5a3a1e');
+      gable(P, 2, 6, -7, -3, 6, 'z', { c1: '#c9a24a', c2: '#b8913c', mat: 'thatch', over: 1, gable: vplanks('#9a6b3e') });
+      winZ(P, 3, 2, -3, 2, 2, { shutter: '#6b4a2e' });
+      doorZ(P, 5, 0, -3, 1, 4, { c: '#5a3a1e', step: false });
+      // round stone mill turned by a beam
+      v.cyl(4, 0, 2, 2.4, 1, stone('#9a9a96'));
+      v.cyl(4, 2, 2, 1.4, 2, MT('stone', '#7a7a76'));
+      v.box(4, 3, 2, 4, 6, 2, W('#6b4423'));
+      v.line(4, 5, 2, -1, 4, 5, W('#6b4423'));
+      // cart with cane bundles, sacks of sugar
+      v.box(-6, 1, 5, -2, 1, 6, W('#8a5a32'));
+      for (const x of [-6, -2]) { v.box(x, 0, 4, x, 1, 4, W('#3a2614')); v.box(x, 0, 7, x, 1, 7, W('#3a2614')); }
+      for (let x = -6; x <= -2; x++) v.set(x, 2, x & 1 ? 5 : 6, MT('leaf', '#a8c858'));
+      v.line(-1, 1, 5, 1, 0, 6, W('#6b4423'));
+      sack(P, 1, 0, 4, '#f2efe6'); sack(P, 3, 0, 5, '#f2efe6'); sack(P, 5, 0, 5, '#e8e0d0');
     },
     market(P) {
       const v = P.v;
+      for (let x = -7; x <= 6; x++) for (let z = -7; z <= 6; z++) v.set(x, 0, z, cobble('#b5ab9c')(x, 0, z));
       const stall = (x0, z0, c1, c2, goods) => {
-        for (const [dx, dz] of [[0, 0], [4, 0], [0, 4], [4, 4]]) v.box(x0 + dx, 0, z0 + dz, x0 + dx, 6, z0 + dz, '#6b4a2e');
-        for (let x = x0 - 1; x <= x0 + 5; x++) for (let z = z0 - 1; z <= z0 + 5; z++) {
-          const y = 7 + (Math.min(z - z0 + 1, z0 + 5 - z) > 1 ? 1 : 0) + (Math.min(z - z0 + 1, z0 + 5 - z) > 2 ? 1 : 0);
-          v.set(x, y, z, (x - x0) % 2 ? c1 : c2);
+        for (const [dx, dz] of [[0, 0], [5, 0], [0, 4], [5, 4]]) v.box(x0 + dx, 1, z0 + dz, x0 + dx, 7 + (dz ? 0 : 1), z0 + dz, W('#6b4a2e'));
+        // counter with goods and a cloth canopy
+        block(P, x0, 1, z0 + 3, x0 + 5, 3, z0 + 3, planks('#a0703c'));
+        goods.forEach((c, i) => {
+          v.set(x0 + i, 4, z0 + 3, MT('plain', c));
+          if (i % 2 === 0) v.set(x0 + i, 5, z0 + 3, MT('plain', shade(c, 1.1)));
+          v.set(x0 + i, 4, z0 + 2, MT('plain', shade(c, 0.92)));
+        });
+        const f = new Vox();
+        for (let x = x0 - 1; x <= x0 + 6; x++) for (let z = z0 - 1; z <= z0 + 5; z++) {
+          const y = 9 - Math.floor((z - z0 + 1) / 3);
+          f.set(x, y, z, MT('cloth', mod(x - x0, 2) ? c1 : c2));
+          if (z === z0 + 5 && mod(x - x0, 2) === 0) f.set(x, y - 1, z, MT('cloth', c1));
         }
-        for (let x = x0 - 1; x <= x0 + 5; x++) v.set(x, 6, z0 + 5, (x - x0) % 2 ? c1 : c2);
-        block(P, x0, 0, z0 + 3, x0 + 4, 2, z0 + 3, planks('#a0703c'));
-        goods.forEach((c, i) => { v.set(x0 + i, 3, z0 + 3, c); if (i % 2) v.set(x0 + i, 4, z0 + 3, shade(c, 1.1)); });
+        P.cloth.push({ vox: f, fn: (vx, vy, vz, cx, cy, cz) => [0, 0, 0.004 * Math.max(0, cz - z0)] });
+        crate(P, x0 + 1, 1, z0, 2, '#8a5a32');
       };
-      stall(-7, -7, '#c8323a', '#f2efe6', ['#ff7b3a', '#ffd23f', '#3cb043', '#ff7b3a', '#e2553a']);
-      stall(1, -7, '#3a7bd5', '#f2efe6', ['#9ab8c8', '#c8d8e0', '#9ab8c8', '#c8783a', '#9ab8c8']);
-      stall(-3, 0, '#f0c03a', '#7a3fb0', ['#c8323a', '#3a7bd5', '#f0c03a', '#7a3fb0', '#3cb043']);
-      crate(P, 4, 0, 1, 3); crate(P, 4, 3, 2, 2, '#8a5a32'); sack(P, 4, 0, 4); sack(P, -6, 0, 3); sack(P, -6, 0, 5, '#b8985a');
-      barrel(P, -6, 0, 0);
-      lamp(P, 0, 0, 6, 5);
-      flag(P, -7, 8, 6, 3, 4, 2, '#7a3fb0', '#f0c03a');
+      stall(-7, -7, '#c8323a', '#f2efe6', ['#ff7b3a', '#ffd23f', '#3cb043', '#ff7b3a', '#e2553a', '#ffd23f']);
+      stall(0, -7, '#3a7bd5', '#f2efe6', ['#9ab8c8', '#c8d8e0', '#9ab8c8', '#c8783a', '#9ab8c8', '#c8d8e0']);
+      stall(-4, 0, '#f0c03a', '#7a3fb0', ['#c8323a', '#3a7bd5', '#f0c03a', '#7a3fb0', '#3cb043', '#c8323a']);
+      crate(P, 3, 1, 1, 3); crate(P, 3, 4, 2, 2, '#8a5a32'); sack(P, 4, 1, 5); sack(P, -7, 1, 5); sack(P, -6, 1, 3, '#b8985a');
+      barrel(P, 4, 1, -2, '#8a5a32', true);
+      lamp(P, 0, 1, 6, 6);
+      flag(P, 6, 1, 6, 11, 5, 3, '#7a3fb0', '#f0c03a');
     },
     yard(P) {
       const v = P.v;
       // slipway sloping toward the sea (+z)
-      for (let z = -7; z <= 6; z++) for (let x = -5; x <= 3; x++) v.set(x, Math.max(0, Math.floor((2 - z) / 4)), z, (z + x) % 3 ? '#8a5a32' : '#7a4a2a');
-      // keel, stem and ribs of a hull being built
-      v.box(-1, 2, -6, -1, 2, 5, '#5a3a1e');
-      v.line(-1, 2, 5, -1, 8, 7, '#5a3a1e');
-      for (let z = -5; z <= 3; z += 2) {
-        const w = 4 - Math.abs(z + 1) * 0.35;
-        for (let a = 0; a <= 8; a++) {
-          const t = a / 8 * Math.PI;
-          v.set(-1 + Math.round(Math.cos(t) * w), 2 + Math.round(Math.sin(t) * 5), z, '#c8a26a');
+      for (let z = -7; z <= 6; z++) for (let x = -5; x <= 3; x++) v.set(x, Math.max(0, Math.floor((2 - z) / 4)), z, MT('plank', shade('#8a5a32', mod(z + (x >> 1), 3) ? 1 : 0.86)));
+      for (let z = -7; z <= 6; z += 3) { v.set(-5, Math.max(0, Math.floor((2 - z) / 4)) + 1, z, W('#5a3a1e')); v.set(3, Math.max(0, Math.floor((2 - z) / 4)) + 1, z, W('#5a3a1e')); }
+      // keel, stem and ribs of a hull being built; the lower strakes are already planked
+      v.box(-1, 3, -6, -1, 3, 5, W('#5a3a1e'));
+      v.line(-1, 3, 5, -1, 10, 7, W('#5a3a1e'));
+      for (let z = -5; z <= 4; z += 2) {
+        const w = 4 - Math.abs(z + 0.5) * 0.3;
+        for (let a = 0; a <= 10; a++) {
+          const t = a / 10 * Math.PI;
+          const x = -1 + Math.round(Math.cos(t) * w), y = 3 + Math.round(Math.sin(t) * 6);
+          v.set(x, y, z, MT('wood', '#c8a26a'));
+          if (y <= 5 && z < 3) { v.set(x, y, z + 1, MT('plank', '#a87a48')); }
         }
       }
-      v.box(-4, 7, -5, 2, 7, -5, '#a07a4a'); v.box(-4, 4, -1, -4, 4, 3, '#a07a4a'); // planks on
-      // wooden crane
-      v.box(5, 0, -6, 5, 16, -6, '#6b4423'); v.box(4, 0, -7, 4, 3, -7, '#6b4423');
-      v.line(5, 16, -6, -1, 15, -2, '#6b4423');
-      v.line(-1, 15, -2, -1, 10, -2, '#d8d0b0'); v.box(-3, 9, -2, 1, 9, -2, '#8a5a32');
-      // timber stack, tools, anchor
-      for (let y = 0; y < 3; y++) v.box(4, y, -3 + y, 6, y, 5, (y % 2) ? '#a0703c' : '#8a5a32');
-      v.box(-7, 0, 3, -6, 0, 6, '#3a3a3a'); v.box(-7, 1, 5, -7, 3, 5, '#3a3a3a'); v.box(-7, 3, 4, -7, 3, 6, '#3a3a3a');
-      barrel(P, -6, 0, -4); torch(P, 3, 0, 6, 4);
+      // scaffold along the side
+      for (const z of [-6, -2, 2]) v.box(-6, 0, z, -6, 9, z, W('#7a5530'));
+      v.box(-6, 6, -6, -6, 6, 2, MT('plank', '#9a7044'));
+      // wooden crane with a beam on the rope
+      v.box(5, 0, -6, 5, 17, -6, W('#6b4423')); v.box(4, 0, -7, 6, 1, -5, W('#5a3a1e'));
+      v.line(5, 17, -6, -1, 16, -2, W('#6b4423')); v.line(5, 12, -6, 2, 16, -4, W('#6b4423'));
+      v.line(-1, 16, -2, -1, 11, -2, MT('cloth', '#d8d0b0')); v.box(-4, 10, -2, 2, 10, -2, MT('plank', '#8a5a32'));
+      // timber stack, saw horse, anchor, rope
+      for (let y = 0; y < 3; y++) v.box(4, y, -3 + y, 6, y, 5, MT('plank', y % 2 ? '#a0703c' : '#8a5a32'));
+      for (let z = -3; z <= 5; z += 2) v.set(6, 0, z, MT('wood', '#d8b078'));
+      v.box(-7, 0, 3, -7, 3, 3, MT('metal', '#3a3a3a')); v.box(-7, 0, 2, -7, 1, 2, MT('metal', '#3a3a3a')); v.box(-7, 0, 4, -7, 1, 4, MT('metal', '#3a3a3a')); v.box(-7, 3, 2, -7, 3, 4, MT('metal', '#3a3a3a'));
+      rope(P, -6, 0, 5);
+      barrel(P, -7, 0, -5, '#8a5a32', true); torch(P, 3, 0, 6, 5);
     },
     mine(P) {
       const v = P.v;
-      // rocky hill with gold veins
-      const rockC = (x, y, z) => {
+      const rc = (x, y, z) => {
         const h = hash(x, y, z);
-        if (h < 0.07) return '#ffd23f';
-        return y > 8 && h < 0.5 ? '#7b8b5a' : h < 0.4 ? '#7a7a76' : h < 0.75 ? '#8a8a86' : '#6e6e6a';
+        if (h < 0.06) return MT('gold', '#ffd23f');
+        if (y > 9 && h < 0.45) return MT('grass', '#6f9a4a');
+        return rockC(h < 0.4 ? '#7a7a76' : h < 0.75 ? '#8a8a86' : '#6e6e6a')(x, y, z);
       };
-      v.ball(-1, 0, -2.5, 7.5, 10, 5, rockC, (x, y) => y >= 0);
-      v.ball(3.5, 0, -3.5, 4, 7, 4, rockC, (x, y) => y >= 0);
-      v.ball(-4.5, 0, -4, 3.5, 12, 3.5, rockC, (x, y) => y >= 0);
-      for (let k = 0; k < 7; k++) lit(P, Math.round(-5 + k * 1.6), 2 + (k % 3) * 3, Math.round(1 - (k % 3)), '#ffd23f');
+      v.ball(-1, 0, -2.5, 7.4, 10, 5, rc, (x, y) => y >= 0);
+      v.ball(3.5, 0, -3.5, 3.4, 7, 3.4, rc, (x, y) => y >= 0);
+      v.ball(-4.5, 0, -4, 3.2, 12, 3.2, rc, (x, y) => y >= 0);
+      for (let k = 0; k < 8; k++) lit(P, Math.round(-5 + k * 1.4), 2 + (k % 3) * 3, Math.round(1.5 - (k % 3)), '#ffd23f');
       // timbered tunnel entrance
-      block(P, -3, 0, 1, 1, 5, 3, '#1a1410');
-      v.box(-4, 0, 3, -4, 6, 3, '#6b4423'); v.box(2, 0, 3, 2, 6, 3, '#6b4423'); v.box(-4, 6, 3, 2, 6, 3, '#6b4423');
-      v.box(-4, 7, 4, 2, 7, 4, '#5a3a1e'); v.box(-2, 8, 4, 0, 8, 4, '#c8a26a');
-      // rails and a cart heaped with ore
-      for (let z = 2; z <= 6; z++) { v.set(-2, 0, z, '#5a5a5a'); v.set(0, 0, z, '#5a5a5a'); if (z % 2) v.box(-2, 0, z, 0, 0, z, '#6b4423'); }
-      v.box(-3, 1, 5, 1, 3, 6, '#6a6a6a'); v.box(-2, 4, 5, 0, 4, 6, '#ffd23f'); v.set(-1, 5, 5, '#fff2a0'); v.set(1, 4, 6, '#e0a020');
+      block(P, -3, 0, 0, 1, 5, 3, MT('plain', '#120e0a'));
+      for (const x of [-4, 2]) v.box(x, 0, 3, x, 6, 3, MT('bark', '#6b4423'));
+      v.box(-4, 6, 3, 2, 6, 3, W('#6b4423')); v.box(-4, 7, 4, 2, 7, 4, W('#5a3a1e'));
+      v.box(-2, 8, 4, 0, 9, 4, MT('plank', '#c8a26a')); v.set(-1, 9, 5, MT('gold', '#ffd23f'));
+      // rails and an ore cart
+      for (let z = 1; z <= 7; z++) { v.set(-2, 0, z, MT('metal', '#5a5a5a')); v.set(0, 0, z, MT('metal', '#5a5a5a')); if (z % 2) v.box(-3, 0, z, 1, 0, z, W('#6b4423')); }
+      block(P, -3, 1, 4, 1, 3, 6, (x, y, z) => MT('metal', (y === 3 || x === -3 || x === 1) ? '#5a5a5e' : '#6a6a6e'));
+      for (const [x, z] of [[-3, 4], [1, 4], [-3, 6], [1, 6]]) v.set(x, 1, z, MT('metal', '#2a2a2a'));
+      v.box(-2, 4, 4, 0, 4, 6, MT('gold', '#ffd23f')); v.set(-1, 5, 5, MT('gold', '#fff2a0')); v.set(0, 5, 4, MT('gold', '#e0a020'));
       lamp(P, -4, 7, 4, 0); lamp(P, 2, 7, 4, 0);
       // headframe winch tower on top
-      v.line(-3, 9, -3, -1, 17, -3, '#6b4423'); v.line(1, 9, -3, -1, 17, -3, '#6b4423');
-      v.box(-2, 16, -3, 0, 16, -3, '#5a3a1e'); v.cyl(-1, 17, -3, 1.2, 17, '#8a6238');
-      v.line(-1, 16, -2, -1, 10, -1, '#d8d0b0');
-      // pickaxe and a sack
-      v.line(4, 0, 4, 6, 3, 3, '#8a6238'); v.box(5, 3, 2, 7, 3, 2, '#9a9a96'); sack(P, 4, 0, 1);
+      v.line(-3, 9, -3, -1, 17, -3, W('#6b4423')); v.line(1, 9, -3, -1, 17, -3, W('#6b4423'));
+      v.box(-2, 16, -3, 0, 16, -3, W('#5a3a1e'));
+      for (let a = 0; a < 12; a++) { const t = a / 12 * Math.PI * 2; v.set(-1 + Math.round(Math.cos(t) * 1.6), 18 + Math.round(Math.sin(t) * 1.6), -2, W(a % 2 ? '#8a6238' : '#6b4423')); }
+      v.line(-1, 16, -2, -1, 10, -1, MT('cloth', '#d8d0b0'));
+      // pickaxe and sacks
+      v.line(4, 0, 4, 6, 3, 3, W('#8a6238')); v.box(5, 3, 2, 6, 3, 2, MT('metal', '#9a9a96')); v.set(4, 3, 2, MT('metal', '#9a9a96'));
+      sack(P, 4, 0, 0, '#b8985a'); sack(P, 5, 0, 5);
     },
     mint(P) {
       const v = P.v;
-      block(P, -7, 0, -6, 6, 0, 5, '#cfc8b8'); block(P, -6, 1, -6, 5, 1, 4, '#ddd6c6');
-      block(P, -6, 2, -6, 5, 10, 1, stone('#ece6d8'));
-      for (const x of [-6, -3, 1, 4]) { v.box(x, 2, 3, x + 1, 10, 3, '#f8f4ea'); v.box(x, 2, 4, x + 1, 2, 4, '#ddd6c6'); v.box(x, 10, 4, x + 1, 10, 4, '#ddd6c6'); }
-      block(P, -7, 11, -7, 6, 11, 4, '#ddd6c6');
+      block(P, -7, 0, -7, 6, 0, 6, stone('#cfc8b8'));
+      for (let s = 0; s < 3; s++) block(P, -3, s, 6 - s, 2, s, 6 - s, MT('stone', s % 2 ? '#e2dccc' : '#d6cfbe'));
+      block(P, -6, 1, -6, 5, 1, 4, stone('#ddd6c6'));
+      block(P, -6, 2, -6, 5, 11, 1, stone('#ece6d8'));
+      // columns with bases and capitals in front of the wall
+      for (const x of [-6, -3, 1, 4]) {
+        for (let y = 2; y <= 10; y++) { v.set(x, y, 3, MT('stone', y % 2 ? '#f8f4ea' : '#f0ebe0')); v.set(x + 1, y, 3, MT('stone', '#e8e2d4')); }
+        v.box(x - 0, 2, 4, x + 1, 2, 4, MT('stone', '#ddd6c6')); v.box(x, 11, 4, x + 1, 11, 4, MT('stone', '#ddd6c6'));
+      }
+      block(P, -7, 12, -7, 6, 12, 4, MT('stone', '#ddd6c6'));
+      for (let x = -7; x <= 6; x += 2) v.set(x, 12, 5, MT('gold', '#e0b04a'));
       // pediment with the golden coin
-      for (let k = 0; k < 6; k++) v.box(-7 + k, 12 + k, 4, 6 - k, 12 + k, 4, k === 0 ? '#ddd6c6' : '#ece6d8');
-      for (let k = 0; k < 6; k++) v.box(-7 + k, 12 + k, -7, 6 - k, 12 + k, 3, '#b8b0a0');
-      seal(P, 0, 14, 5, '#ffd23f');
-      doorZ(P, -1, 1, 2, 5, '#b8862a', '#a8a090', 2);
-      winZ(P, -5, 5, 1, 2, 3, '#a8a090'); winZ(P, 3, 5, 1, 2, 3, '#a8a090');
-      chimney(P, 3, -5, 12, 17, '#8c8c88');
-      // gold coin stacks by the steps
-      for (const [x, h] of [[-7, 2], [-6, 3], [5, 2]]) v.box(x, 1, 5, x, h, 5, '#ffd23f');
-      lamp(P, -3, 7, 2, 0); lamp(P, 2, 7, 2, 0);
+      for (let k = 0; k < 7; k++) {
+        v.box(-7 + k, 13 + k, 4, 6 - k, 13 + k, 4, MT('stone', k === 0 ? '#ddd6c6' : '#ece6d8'));
+        v.box(-7 + k, 13 + k, -7, 6 - k, 13 + k, 3, tileOf('#b8b0a0', '#a8a090', 'roof')(k, 0));
+      }
+      seal(P, 0, 15, 5, '#ffd23f');
+      doorZ(P, -1, 2, 2, 2, 6, { c: '#b8862a', frame: '#a8a090', knob: '#fff2a0', step: false });
+      winZ(P, -5, 5, 2, 2, 3, { frame: '#a8a090' }); winZ(P, 3, 5, 2, 2, 3, { frame: '#a8a090' });
+      chimney(P, 3, -5, 13, 19, '#9a8a7a');
+      // gold coin stacks by the steps, lanterns
+      for (const [x, h] of [[-7, 3], [-6, 4], [5, 3], [6, 2]]) for (let y = 1; y <= h; y++) v.set(x, y, 5, MT('gold', y % 2 ? '#ffd23f' : '#e0a020'));
+      lamp(P, -3, 8, 4, 0); lamp(P, 2, 8, 4, 0);
     },
     light(P) {
       const v = P.v;
+      // rocks at the foot
+      for (let x = -7; x <= 6; x++) for (let z = -7; z <= 6; z++) if (hash(x, 2, z) < 0.12) v.set(x, 0, z, rockC('#8a8a86')(x, 0, z));
       // keeper's cottage at the back
-      block(P, -7, 0, -7, -1, 5, -2, stone('#e8e4da'));
-      roofX(P, -7, -1, -7, -2, 6, '#c8323a', '#b02a30', '#e8e4da', 1);
-      winZ(P, -5, 2, -2, 2, 2, '#6e6e6a');
-      // striped tower
+      block(P, -7, 0, -7, -2, 5, -3, stone('#e8e4da'));
+      gable(P, -7, -2, -7, -3, 6, 'x', { c1: '#c8323a', c2: '#a82830', over: 1, gable: stone('#e8e4da') });
+      winZ(P, -6, 2, -3, 2, 2, { frame: '#6e6e6a', shutter: '#3a7bd5' });
+      chimney(P, -6, -6, 6, 11, '#8a8a86');
+      // tapering striped tower with windows
       for (let y = 0; y <= 27; y++) {
-        const r = 3.6 - y * 0.05;
-        v.cyl(1.5, y, 1.5, r, y, Math.floor(y / 4) % 2 ? '#f2efe6' : '#c8323a');
+        const r = 3.7 - y * 0.05;
+        const band = Math.floor(y / 4) % 2;
+        v.cyl(1.5, y, 1.5, r, y, (x, yy, z) => MT('stone', shade(band ? '#f2efe6' : '#c8323a', 0.95 + 0.08 * hash(x, yy >> 1, z))));
       }
-      doorZ(P, 1, 4, 2, 4, '#5a3a1e', '#8a8a86');
-      for (const y of [9, 17]) { lit(P, 1, y, 4); lit(P, 2, y, 4); lit(P, 1, y + 1, 4); lit(P, 2, y + 1, 4); }
-      // gallery with railing
-      v.cyl(1.5, 28, 1.5, 3.6, 28, '#2a2a2a');
-      for (let a = 0; a < 20; a++) { const t = a / 20 * Math.PI * 2; v.set(1.5 + Math.cos(t) * 3.6, 29, 1.5 + Math.sin(t) * 3.6, a % 2 ? '#2a2a2a' : '#4a4a4a'); }
-      // lantern room
+      doorZ(P, 1, 0, 5, 2, 4, { c: '#5a3a1e', frame: '#8a8a86' });
+      for (const y of [9, 17]) winZ(P, 1, y, 4, 2, 2, { frame: '#6e6e6a' });
+      winX(P, 4, 13, 1, 1, 2, { frame: '#6e6e6a' });
+      // gallery with a railing, lantern room, roof and vane
+      v.cyl(1.5, 28, 1.5, 3.8, 28, MT('metal', '#2a2a2a'));
+      for (let a = 0; a < 24; a++) { const t = a / 24 * Math.PI * 2; v.set(1.5 + Math.cos(t) * 3.7, 29, 1.5 + Math.sin(t) * 3.7, MT('metal', a % 2 ? '#2a2a2a' : '#4a4a4a')); v.set(1.5 + Math.cos(t) * 3.7, 30, 1.5 + Math.sin(t) * 3.7, MT('metal', '#2a2a2a')); }
       for (let y = 29; y <= 32; y++) for (let x = 0; x <= 3; x++) for (let z = 0; z <= 3; z++) {
         const corner = (x === 0 || x === 3) && (z === 0 || z === 3);
-        if (corner) v.set(x, y, z, '#2a2a2a'); else P.g.set(x, y, z, y === 30 || y === 31 ? '#fff6b0' : LAMP);
+        if (corner) v.set(x, y, z, MT('metal', '#2a2a2a')); else P.g.set(x, y, z, MT('glass', y === 30 || y === 31 ? '#fff6b0' : LAMP));
       }
-      v.cyl(1.5, 33, 1.5, 2.6, 35, '#c8323a', 0.4);
-      v.set(1, 36, 1, '#f0c03a'); v.set(1, 37, 1, '#f0c03a');
+      v.cyl(1.5, 33, 1.5, 2.6, 35, MT('metal', '#c8323a'), 0.4);
+      v.set(1, 36, 1, MT('gold', '#f0c03a')); v.set(1, 37, 1, MT('gold', '#f0c03a')); v.box(0, 38, 1, 2, 38, 1, MT('metal', '#2a2a2a'));
+      barrel(P, 4, 0, -6, '#8a5a32', true); rope(P, -6, 0, 4);
     },
     bank(P) {
       const v = P.v;
-      block(P, -7, 0, -6, 6, 1, 5, stone('#8f8a80'));
-      block(P, -6, 2, -6, 5, 10, 2, stone('#a8a296'));
-      for (const x of [-6, -3, 1, 4]) v.box(x, 2, 3, x + 1, 10, 3, '#c8c2b4');
-      block(P, -7, 11, -7, 6, 12, 4, '#8f8a80');
-      // golden dome
-      v.ball(-0.5, 13, -1.5, 5, 5, 5, (x, y, z) => (hash(x, y, z) < 0.15 ? '#fff2a0' : y > 16 ? '#ffd23f' : '#e8b830'), (x, y) => y >= 13);
-      v.box(-1, 18, -2, 0, 20, -1, '#ffd23f'); v.set(-1, 21, -2, '#fff2a0');
-      // round vault door
+      block(P, -7, 0, -7, 6, 1, 6, stone('#8f8a80'));
+      for (let s = 0; s < 2; s++) block(P, -4, s, 6 - s, 3, s, 6 - s, MT('stone', '#a8a296'));
+      block(P, -6, 2, -6, 5, 10, 2, stone('#b8b2a6'));
+      for (const x of [-6, -3, 1, 4]) { for (let y = 2; y <= 10; y++) { v.set(x, y, 3, MT('stone', '#d8d2c4')); v.set(x + 1, y, 3, MT('stone', '#c8c2b4')); } v.box(x, 2, 4, x + 1, 2, 4, MT('stone', '#a8a296')); }
+      block(P, -7, 11, -7, 6, 12, 4, stone('#8f8a80'));
+      for (let x = -7; x <= 6; x++) v.set(x, 12, 5, MT('gold', x % 2 ? '#e0b04a' : '#c8a040'));
+      // golden dome with a lantern on top
+      v.ball(-0.5, 13, -1.5, 5, 5.4, 5, (x, y, z) => MT('gold', hash(x, y, z) < 0.12 ? '#fff2a0' : y > 16 ? '#ffd23f' : (x + z + y) % 3 === 0 ? '#d8a828' : '#e8b830'), (x, y) => y >= 13);
+      v.box(-1, 19, -2, 0, 20, -1, MT('gold', '#ffd23f')); lit(P, -1, 21, -2, '#fff2a0'); v.set(-1, 22, -2, MT('gold', '#ffd23f'));
+      // round vault door with spokes
       for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) {
         const d = Math.hypot(i, j);
-        if (d <= 3.3) v.set(-1 + i, 6 + j, 3, d > 2.4 ? '#5a5a62' : (i === 0 || j === 0) ? '#ffd23f' : '#7a7a84');
+        if (d <= 3.3) v.set(-1 + i, 6 + j, 3, MT('metal', d > 2.4 ? '#5a5a62' : (i === 0 || j === 0) ? '#ffd23f' : '#7a7a84'));
       }
+      v.set(-1, 6, 4, MT('gold', '#fff2a0'));
+      winZ(P, -5, 5, 2, 1, 3, { frame: '#8f8a80' }); winZ(P, 4, 5, 2, 1, 3, { frame: '#8f8a80' });
       // gold bars and lanterns
-      v.box(-7, 2, 4, -5, 2, 5, '#ffd23f'); v.box(-6, 3, 4, -6, 3, 5, '#ffd23f');
-      v.box(4, 2, 4, 6, 2, 5, '#ffd23f');
-      lamp(P, -4, 2, 4, 4); lamp(P, 3, 2, 4, 4);
+      for (const [x0, z0] of [[-7, 4], [5, 4]]) { v.box(x0, 2, z0, x0 + 1, 2, z0 + 1, MT('gold', '#ffd23f')); v.set(x0, 3, z0, MT('gold', '#e0a020')); }
+      lamp(P, -4, 2, 5, 4); lamp(P, 3, 2, 5, 4);
     },
     temple(P) {
       const v = P.v;
       block(P, -7, 0, -7, 6, 1, 6, stone('#dfe8ef'));
-      block(P, -6, 2, -6, 5, 2, 5, '#eef3f7');
-      v.box(-2, 0, 6, 1, 0, 7, '#cfd8df'); v.box(-2, 1, 6, 1, 1, 6, '#dfe8ef'); // stairs
-      for (const [x, z] of [[-6, -6], [4, -6], [-6, 4], [4, 4], [-6, -1], [4, -1], [-2, 4], [1, 4]]) v.box(x, 3, z, x + 1, 10, z + 1, (x + z) % 2 ? '#f4f8ff' : '#e6eef6');
-      const top = roofHip(P, -6, 5, -6, 5, 11, '#3a7bd5', '#2f6bc0', 2);
-      roofHip(P, -3, 2, -3, 2, top + 1, '#3a7bd5', '#2f6bc0', 1);
-      // golden trident on top and in the shrine
+      block(P, -6, 2, -6, 5, 2, 5, MT('stone', '#eef3f7'));
+      for (let s = 0; s < 2; s++) v.box(-2, s, 6 + 0, 1, s, 6, MT('stone', s ? '#e6eef4' : '#cfd8df'));
+      v.box(-2, 0, 7, 1, 0, 7, MT('stone', '#cfd8df'));
+      for (const [x, z] of [[-6, -6], [4, -6], [-6, 4], [4, 4], [-6, -1], [4, -1], [-2, 4], [1, 4]]) {
+        v.box(x, 3, z, x + 1, 10, z + 1, MT('stone', (x + z) % 2 ? '#f4f8ff' : '#e6eef6'));
+        v.box(x, 3, z, x + 1, 3, z + 1, MT('stone', '#cfd8df')); v.box(x, 10, z, x + 1, 10, z + 1, MT('gold', '#e0b04a'));
+      }
+      const top = hip(P, -6, 5, -6, 5, 11, { c1: '#3a7bd5', c2: '#2f6bc0', over: 2 });
+      hip(P, -3, 2, -3, 2, top + 1, { c1: '#3a7bd5', c2: '#2f6bc0', over: 1 });
+      // golden trident on top
       const ty = top + 5;
-      v.box(-1, ty, -1, -1, ty + 6, -1, '#f0c03a');
-      v.box(-3, ty + 4, -1, 1, ty + 4, -1, '#f0c03a'); v.box(-3, ty + 5, -1, -3, ty + 7, -1, '#f0c03a'); v.box(1, ty + 5, -1, 1, ty + 7, -1, '#f0c03a');
-      v.set(-1, ty + 7, -1, '#fff2a0');
-      block(P, -2, 3, -2, 1, 3, 1, '#2f6bc0');
-      lit(P, -1, 4, 0, '#5ff3ff'); lit(P, 0, 4, 0, '#5ff3ff'); lit(P, -1, 5, 0, '#bff9ff');
-      // fire bowls
-      for (const x of [-5, 4]) { v.box(x, 2, 6, x, 3, 6, '#8a8a86'); lit(P, x, 4, 6, '#ff9a2a'); lit(P, x, 5, 6, '#ffd23f'); }
-      // water basins
-      v.box(-7, 2, -7, -6, 2, -6, '#4fb3df'); v.box(5, 2, -7, 6, 2, -6, '#4fb3df');
+      v.box(-1, ty, -1, -1, ty + 6, -1, MT('gold', '#f0c03a'));
+      v.box(-3, ty + 4, -1, 1, ty + 4, -1, MT('gold', '#f0c03a')); v.box(-3, ty + 5, -1, -3, ty + 7, -1, MT('gold', '#f0c03a')); v.box(1, ty + 5, -1, 1, ty + 7, -1, MT('gold', '#f0c03a'));
+      v.set(-1, ty + 7, -1, MT('gold', '#fff2a0'));
+      // shrine: water basin with a glowing pearl
+      block(P, -2, 3, -2, 1, 3, 1, MT('stone', '#2f6bc0'));
+      v.box(-1, 4, -1, 0, 4, 0, MT('water', '#4fb3df'));
+      lit(P, -1, 5, 0, '#5ff3ff'); lit(P, 0, 5, 0, '#bff9ff');
+      for (const x of [-5, 4]) { v.box(x, 2, 6, x, 3, 6, MT('stone', '#8a8a86')); lit(P, x, 4, 6, '#ff9a2a'); lit(P, x, 5, 6, '#ffd23f'); }
+      v.box(-7, 2, -7, -6, 2, -6, MT('water', '#4fb3df')); v.box(5, 2, -7, 6, 2, -6, MT('water', '#4fb3df'));
+      banner(P, -4, 9, 6, 2, 4, '#3a7bd5', '#f0c03a'); banner(P, 2, 9, 6, 2, 4, '#3a7bd5', '#f0c03a');
     },
     obs(P) {
       const v = P.v;
       block(P, -7, 0, -7, 6, 1, 6, stone('#8f8a9a'));
       v.cyl(-0.5, 2, -0.5, 6, 11, stone('#e8e4ee'));
-      v.cyl(-0.5, 12, -0.5, 6.4, 12, '#5a4a8a');
-      v.ball(-0.5, 12, -0.5, 6, 6, 6, (x, y, z) => (Math.abs(x + 0.5) < 1.2 && z < 3 ? '#2a2a3a' : hash(x, y, z) < 0.1 ? '#d8d4e4' : '#f4f1fa'), (x, y) => y >= 13);
-      // telescope out of the slit
-      v.line(-1, 15, 0, -1, 22, -6, '#b8862a', 1);
-      v.line(-1, 22, -6, -1, 23, -7, '#5a4a8a', 1);
+      v.cyl(-0.5, 12, -0.5, 6.4, 12, MT('stone', '#5a4a8a'));
+      v.ball(-0.5, 12, -0.5, 6, 6, 6, (x, y, z) => MT('metal', Math.abs(x + 0.5) < 1.2 && z < 3 ? '#2a2a3a' : (y + Math.round(Math.atan2(z, x) * 4)) % 4 === 0 ? '#dcd8e8' : '#f4f1fa'), (x, y) => y >= 13);
+      // brass telescope out of the slit
+      v.line(-1, 15, 0, -1, 22, -6, MT('metal', '#b8862a'), 1);
+      v.line(-1, 22, -6, -1, 23, -7, MT('metal', '#5a4a8a'), 1);
       lit(P, -1, 23, -8, '#c58bff');
-      doorZ(P, -2, 5, 2, 5, '#3a2a5a', '#5a4a8a', 2);
-      winZ(P, -6, 7, 3, 1, 2, '#5a4a8a', null, '#c58bff'); winZ(P, 4, 7, 3, 1, 2, '#5a4a8a', null, '#c58bff');
-      // star symbols and a small orrery
-      for (const [x, y] of [[-6, 4], [5, 5]]) { v.set(x, y, 6, '#f0c03a'); v.set(x + 1, y, 6, '#f0c03a'); v.set(x, y + 1, 6, '#f0c03a'); }
-      v.box(4, 2, 4, 4, 4, 4, '#b8862a'); v.ball(4, 5, 4, 1, 1, 1, '#3a7bd5');
+      doorZ(P, -2, 2, 5, 2, 5, { c: '#3a2a5a', frame: '#5a4a8a', step: false });
+      winZ(P, -6, 7, 3, 1, 2, { frame: '#5a4a8a', glass: '#c58bff' }); winZ(P, 4, 7, 3, 1, 2, { frame: '#5a4a8a', glass: '#c58bff' });
+      for (const [x, y] of [[-6, 4], [4, 5]]) { v.set(x, y, 5, MT('gold', '#f0c03a')); v.set(x + 1, y, 5, MT('gold', '#f0c03a')); v.set(x, y + 1, 5, MT('gold', '#f0c03a')); }
+      // a small orrery and a lamp
+      v.box(4, 2, 4, 4, 4, 4, MT('metal', '#b8862a')); v.ball(4, 5, 4, 1, 1, 1, MT('plain', '#3a7bd5'));
+      v.set(6, 5, 4, MT('gold', '#f0c03a')); v.set(2, 6, 4, MT('plain', '#c8323a'));
       lamp(P, -6, 2, 5, 4, '#c58bff');
     },
     statue(P) {
       const v = P.v;
-      // plaza tiles and a stepped pedestal
-      for (let x = -7; x <= 6; x++) for (let z = -7; z <= 6; z++) v.set(x, 0, z, (x + z) % 2 ? '#b8b0a0' : '#a8a090');
+      for (let x = -7; x <= 6; x++) for (let z = -7; z <= 6; z++) v.set(x, 0, z, MT('cobble', (x + z) % 2 ? '#b8b0a0' : '#a8a090'));
+      for (const [x, z] of [[-6, -6], [5, -6], [-6, 5], [5, 5]]) { v.box(x, 1, z, x + 1, 1, z + 1, MT('grass', '#4fa64a')); v.set(x, 2, z, MT('leaf', '#ff6fa8')); v.set(x + 1, 2, z + 1, MT('leaf', '#ffd23f')); }
       block(P, -4, 1, -4, 3, 2, 3, stone('#9a9a96'));
       block(P, -3, 3, -3, 2, 6, 2, stone('#8a8a86'));
-      v.box(-1, 4, 3, 0, 5, 3, '#f0c03a'); // plaque
+      v.box(-1, 4, 3, 0, 5, 3, MT('gold', '#f0c03a'));
       // the captain in bronze: boots, coat, sash, head, tricorn, raised cutlass
-      const bz = '#8a6a3a', bl = '#a8844a', dk = '#5a4428';
+      const bz = MT('metal', '#8a6a3a'), bl = MT('metal', '#a8844a'), dk = MT('metal', '#5a4428');
       v.box(-2, 7, -1, -1, 10, 0, dk); v.box(0, 7, -1, 1, 10, 0, dk);
-      block(P, -3, 11, -2, 2, 17, 1, (x, y, z) => (y === 13 ? '#c8a050' : x === -1 || x === 0 ? bl : bz));
+      block(P, -3, 11, -2, 2, 17, 1, (x, y) => (y === 13 ? MT('metal', '#c8a050') : x === -1 || x === 0 ? bl : bz));
       v.box(-3, 11, 2, -2, 14, 2, bz); v.box(1, 11, 2, 2, 14, 2, bz);
-      v.box(-4, 13, -1, -4, 16, 0, bz); // left arm
-      v.box(3, 16, -1, 3, 19, 0, bz); // raised right arm
-      v.line(3, 20, 0, 5, 26, 0, '#c8c8c2', 0); v.set(3, 19, 1, '#c8a050');
+      v.box(-4, 13, -1, -4, 16, 0, bz);
+      v.box(3, 16, -1, 3, 19, 0, bz);
+      v.line(3, 20, 0, 5, 26, 0, MT('metal', '#c8c8c2')); v.set(3, 19, 1, MT('metal', '#c8a050'));
       block(P, -2, 18, -2, 1, 21, 1, bl);
       v.set(-1, 20, 2, dk); v.set(0, 20, 2, dk);
       block(P, -4, 22, -3, 3, 22, 2, dk); block(P, -2, 23, -2, 1, 24, 1, dk); v.box(-4, 23, -3, -4, 23, 2, dk); v.box(3, 23, -3, 3, 23, 2, dk);
-      // a chest under the captain's boot, lanterns at the corners
-      v.box(-3, 7, 1, 2, 8, 2, '#8a5a32'); v.box(-3, 8, 1, 2, 8, 2, '#f0c03a');
+      v.box(-3, 7, 1, 2, 8, 2, MT('plank', '#8a5a32')); v.box(-3, 8, 1, 2, 8, 2, MT('gold', '#f0c03a'));
       for (const [x, z] of [[-7, -7], [6, -7], [-7, 6], [6, 6]]) lamp(P, x, 1, z, 4);
     },
   };
 
-  /** Detailed building part set (0.125 units per voxel). */
-  function buildingParts(id) {
+  /**
+   * Detailed building part set (0.125 units per voxel). `stage` 0..2 grows with the building level:
+   * stage 1 adds lanterns at the front corners, stage 2 also a pennant on the highest point.
+   * Everything is clipped to the plot cell.
+   */
+  function buildingParts(id, stage) {
     const P = parts();
     (BUILD[id] || BUILD.hut)(P);
-    return P;
+    stage = stage || 0;
+    if (stage >= 1) for (const x of [-7, 6]) {
+      let free = true;
+      for (let y = 0; y <= 8; y++) if (P.v.has(x, y, 7) || P.v.has(x, y, 6)) { free = false; break; }
+      if (free) lamp(P, x, 0, 7, 5);
+    }
+    if (stage >= 2) {
+      let best = null;
+      P.v.each((x, y, z) => { if (x >= -6 && x <= 5 && z >= -6 && z <= 5 && (!best || y > best[1])) best = [x, y, z]; });
+      if (best) {
+        const [x, y, z] = best;
+        for (let k = 1; k <= 6; k++) P.v.set(x, y + k, z, W('#5a3a1e'));
+        P.v.set(x, y + 7, z, MT('gold', '#f0c03a'));
+        const f = new Vox();
+        const pc = ['#c8323a', '#2f6bc0', '#2f7a46', '#7a3fb0', '#e0a020'][Math.floor(hash(x, y, id.length) * 5)];
+        for (let i = 1; i <= 4; i++) for (let j = 0; j < (i < 3 ? 2 : 1); j++) f.set(x - i, y + 6 - j, z, MT('cloth', pc));
+        P.cloth.push({ vox: f, fn: flagWeight(x, 0.016) });
+      }
+    }
+    return fitCell(P, -8, 7);
   }
   /** Legacy single-Vox access (debug viewer). */
   function building(id) { return buildingParts(id).v; }
@@ -1466,96 +1779,101 @@
   /** The treasure chest (0.125 units per voxel): banded, locked, coins spilling out. */
   function chest() {
     const v = new Vox();
-    for (let x = -6; x <= 5; x++) for (let y = 0; y <= 5; y++) for (let z = -4; z <= 3; z++) v.set(x, y, z, y % 2 ? '#8a5a32' : '#7a4a2a');
+    for (let x = -6; x <= 5; x++) for (let y = 0; y <= 5; y++) for (let z = -4; z <= 3; z++) v.set(x, y, z, MT('plank', y % 2 ? '#8a5a32' : '#7a4a2a'));
     for (let x = -6; x <= 5; x++) for (let y = 6; y <= 8; y++) for (let z = -4; z <= 3; z++) {
       if (y === 8 && (z === -4 || z === 3)) continue;
-      v.set(x, y, z, y === 6 ? '#6b4423' : '#9a6b3e');
+      v.set(x, y, z, y === 6 ? W('#6b4423') : MT('plank', (x & 1) ? '#9a6b3e' : '#8a5e36'));
     }
-    for (const x of [-6, -3, 2, 5]) for (let y = 0; y <= 8; y++) for (const z of [-4, 3]) if (!(y === 8)) v.set(x, y, z, '#f0c03a');
-    for (const x of [-6, -3, 2, 5]) { for (let z = -3; z <= 2; z++) v.set(x, 8, z, '#f0c03a'); v.set(x, 7, -4, '#f0c03a'); v.set(x, 7, 3, '#f0c03a'); }
-    for (let x = -6; x <= 5; x++) { v.set(x, 0, 3, '#c8902a'); v.set(x, 0, -4, '#c8902a'); }
-    // lock plate with a keyhole
-    v.box(-1, 4, 4, 0, 6, 4, '#ffd23f'); v.set(-1, 5, 4, '#2a1a0a'); v.set(0, 4, 4, '#e0a020');
-    // gems on the lid, coins spilling at the front
-    v.set(-5, 9, -1, '#c8323a'); v.set(4, 9, 0, '#3a7bd5'); v.box(-1, 9, -1, 0, 9, 0, '#ffd23f');
-    for (const [x, z] of [[-4, 5], [-3, 5], [1, 5], [2, 6], [3, 5], [-6, 5], [5, 5], [4, 6]]) v.set(x, 0, z, '#ffd23f');
-    v.set(-3, 1, 5, '#fff2a0'); v.set(3, 1, 5, '#e0a020');
+    for (const x of [-6, -3, 2, 5]) for (let y = 0; y <= 7; y++) for (const z of [-4, 3]) v.set(x, y, z, MT('gold', '#f0c03a'));
+    for (const x of [-6, -3, 2, 5]) { for (let z = -3; z <= 2; z++) v.set(x, 8, z, MT('gold', '#f0c03a')); v.set(x, 7, -4, MT('gold', '#f0c03a')); v.set(x, 7, 3, MT('gold', '#f0c03a')); }
+    for (let x = -6; x <= 5; x++) { v.set(x, 0, 3, MT('gold', '#c8902a')); v.set(x, 0, -4, MT('gold', '#c8902a')); }
+    v.box(-1, 4, 4, 0, 6, 4, MT('gold', '#ffd23f')); v.set(-1, 5, 4, MT('plain', '#2a1a0a')); v.set(0, 4, 4, MT('gold', '#e0a020'));
+    v.set(-5, 9, -1, MT('glass', '#c8323a')); v.set(4, 9, 0, MT('glass', '#3a7bd5')); v.box(-1, 9, -1, 0, 9, 0, MT('gold', '#ffd23f'));
+    for (const [x, z] of [[-4, 5], [-3, 5], [1, 5], [2, 6], [3, 5], [-6, 5], [5, 5], [4, 6]]) v.set(x, 0, z, MT('gold', '#ffd23f'));
+    v.set(-3, 1, 5, MT('gold', '#fff2a0')); v.set(3, 1, 5, MT('gold', '#e0a020'));
     return v;
   }
   function parrot(gold) {
     const v = new Vox();
     const body = gold ? '#ffd23f' : '#3cb043', wing = gold ? '#ffb100' : '#2f6bc0', tail = gold ? '#fff2a0' : '#d63a3a';
-    v.ball(0, 3, 0, 2, 2.6, 1.6, body);
-    v.ball(1, 6, 0, 1.6, 1.6, 1.4, body);
-    v.box(3, 5, 0, 3, 6, 0, '#ffd23f'); v.set(3, 4, 0, '#2a2a2a');
-    v.set(2, 7, 1, '#fff'); v.set(2, 7, -1, '#fff');
-    v.line(-1, 2, 0, -4, 0, 0, tail);
-    v.box(-1, 2, 2, 1, 5, 2, wing); v.box(-1, 2, -2, 1, 5, -2, wing);
+    const m = gold ? 'gold' : 'cloth';
+    v.ball(0, 3, 0, 2, 2.6, 1.6, MT(m, body));
+    v.ball(1, 6, 0, 1.6, 1.6, 1.4, MT(m, body));
+    v.box(3, 5, 0, 3, 6, 0, MT('plain', '#ffd23f')); v.set(3, 4, 0, MT('plain', '#2a2a2a'));
+    v.set(2, 7, 1, MT('plain', '#fff')); v.set(2, 7, -1, MT('plain', '#fff'));
+    v.line(-1, 2, 0, -4, 0, 0, MT(m, tail));
+    v.box(-1, 2, 2, 1, 5, 2, MT(m, wing)); v.box(-1, 2, -2, 1, 5, -2, MT(m, wing));
     return v;
   }
   function coin() {
     const v = new Vox();
-    v.ball(0, 0, 0, 1.6, 1.6, 0.5, '#ffd23f');
-    v.set(0, 0, 1, '#e0a020');
+    v.ball(0, 0, 0, 1.6, 1.6, 0.5, MT('gold', '#ffd23f'));
+    v.set(0, 0, 1, MT('gold', '#e0a020'));
     return v;
   }
   function bottle() {
     const v = new Vox();
-    v.box(-2, 0, 0, 2, 1, 1, '#4fae8a');
-    v.box(3, 0, 0, 4, 1, 1, '#4fae8a'); v.set(5, 0, 0, '#8a5a32');
-    v.set(0, 1, 2, '#f2ead6');
+    v.box(-2, 0, 0, 2, 1, 1, MT('glass', '#4fae8a'));
+    v.box(3, 0, 0, 4, 1, 1, MT('glass', '#4fae8a')); v.set(5, 0, 0, W('#8a5a32'));
+    v.set(0, 1, 2, MT('cloth', '#f2ead6'));
     return v;
   }
   function boat(color) {
     const v = new Vox();
-    v.box(-4, 0, -1, 4, 1, 1, color || '#1f3e66');
-    v.box(-3, 0, -2, 3, 1, 2, color || '#1f3e66');
-    v.box(-2, 2, -1, -2, 3, -1, '#e9e3d2'); v.box(0, 2, 1, 0, 3, 1, '#e9e3d2'); v.box(2, 2, -1, 2, 3, -1, '#e9e3d2');
-    v.set(-2, 4, -1, '#1d4f91'); v.set(0, 4, 1, '#1d4f91'); v.set(2, 4, -1, '#1d4f91');
+    v.box(-4, 0, -1, 4, 1, 1, MT('plank', color || '#1f3e66'));
+    v.box(-3, 0, -2, 3, 1, 2, MT('plank', color || '#1f3e66'));
+    v.box(-3, 1, -1, 3, 1, 1, MT('plank', '#8a5a32'));
+    v.box(-2, 2, -1, -2, 3, -1, MT('cloth', '#e9e3d2')); v.box(0, 2, 1, 0, 3, 1, MT('cloth', '#e9e3d2')); v.box(2, 2, -1, 2, 3, -1, MT('cloth', '#e9e3d2'));
+    v.set(-2, 4, -1, MT('cloth', '#1d4f91')); v.set(0, 4, 1, MT('cloth', '#1d4f91')); v.set(2, 4, -1, MT('cloth', '#1d4f91'));
     return v;
   }
   function cloudPuff(seed) {
     const rnd = VC.util.rng(seed || 9);
     const v = new Vox();
-    for (let k = 0; k < 4; k++) v.ball(k * 4 - 6, rnd() * 2, rnd() * 4 - 2, 3 + rnd() * 2, 2 + rnd(), 3, '#ffffff');
+    for (let k = 0; k < 4; k++) v.ball(k * 4 - 6, rnd() * 2, rnd() * 4 - 2, 3 + rnd() * 2, 2 + rnd(), 3, MT('plain', '#ffffff'));
     return v;
   }
   function smallIsland(seed) {
     const rnd = VC.util.rng(seed || 4);
     const v = new Vox();
     const r = 6 + rnd() * 5;
-    v.ball(0, 0, 0, r, 3 + rnd() * 3, r * 0.8, (x, y) => (y > 1 ? '#5fae46' : '#e3cc8e'), (x, y) => y >= -2);
+    v.ball(0, 0, 0, r, 3 + rnd() * 3, r * 0.8, (x, y) => (y > 1 ? MT('grass', '#5fae46') : MT('sand', '#e3cc8e')), (x, y) => y >= -2);
     const p = palm(6, seed);
     p.each((x, y, z, c) => v.set(x + 1, y + 4, z, c));
     return v;
   }
 
   // ------------------------------------------------------------------ village decor (part sets, 0.125 units per voxel)
-  /** Village cottage: plaster/plank/stone walls, tiled/thatched/slate roof, door, lit windows, chimney. */
+  /** Village cottage: plank/timber/stone/brick walls, tiled/thatched/slate roof, door, windows, chimney. */
   function cottage(seed) {
     const rnd = VC.util.rng(seed || 1);
     const P = parts();
     const v = P.v;
     const hw = 4 + (rnd() * 2 | 0);
     const x0 = -hw, x1 = hw - 1, z0 = -4, z1 = 3;
-    const wh = 6 + (rnd() * 2 | 0);
+    const two = seed % 3 === 0;
+    const wh = two ? 11 : 6 + (rnd() * 2 | 0);
     const ws = (seed * 7) % 5;
-    const wallC = ['#efe3c4', '#a0703c', '#c8bca8', '#e8d0a8', '#d9c9a3'][ws];
-    const wallFn = ws === 1 ? planks(wallC) : ws === 2 ? stone(wallC) : timber(wallC, '#5a3a1e', x0, x1, z0, z1, 0, wh);
-    const roofs = [['#b03a2e', '#962f25'], ['#c9a24a', '#d9b45a'], ['#4a6a8a', '#3a5a7a'], ['#7a4a2e', '#6b4023'], ['#3f7f5a', '#356b4c']];
-    const [r1, r2] = roofs[(seed * 3 + 1) % 5];
+    const wallC = ['#efe3c4', '#a0703c', '#c8bca8', '#b8604a', '#d9c9a3'][ws];
+    const wallFn = ws === 1 ? planks(wallC) : ws === 2 ? stone(wallC) : ws === 3 ? brick(wallC) : timber(wallC, '#5a3a1e', x0, x1, z0, z1, 0, wh);
+    const roofs = [['#b8402e', '#9a3326', 'roof'], ['#c9a24a', '#b8913c', 'thatch'], ['#4a6a8a', '#3a5a7a', 'roof'], ['#7a4a2e', '#6b4023', 'roof'], ['#3f7f5a', '#356b4c', 'roof']];
+    const [r1, r2, rm] = roofs[(seed * 3 + 1) % 5];
     block(P, x0, 0, z0, x1, wh, z1, wallFn);
+    if (ws !== 3 && ws !== 2) block(P, x0, 0, z0, x1, 0, z1, stone('#8c8a84'));
+    if (ws === 1 || ws === 3) frameBox(P, x0, z0, x1, z1, 0, wh, ws === 3 ? '#8a8a86' : '#5a3a1e');
     const shutter = ['#2f7a46', '#3a7bd5', '#c8323a', '#6b4a2e'][seed % 4];
-    doorZ(P, -1, z1, 2, 4, '#6b4423', '#4a3020');
-    winZ(P, x0 + 2, 2, z1, 2, 2, '#5a3a1e', shutter);
-    if (hw >= 5) winZ(P, x1 - 3, 2, z1, 2, 2, '#5a3a1e', shutter);
-    // flower box under the first window
-    v.box(x0 + 1, 1, z1 + 1, x0 + 4, 1, z1 + 1, '#6b4a2e');
-    for (let x = x0 + 1; x <= x0 + 4; x++) v.set(x, 2, z1 + 2, x % 2 ? '#ff6fa8' : '#ffd23f');
-    const ry = rnd() < 0.6 ? roofX(P, x0, x1, z0, z1, wh + 1, r1, r2, wallC, 1) : roofZ(P, x0, x1, z0, z1, wh + 1, r1, r2, wallC, 1);
-    chimney(P, x1 - 2, z0 + 1, wh + 1, Math.max(ry + 1, wh + 6), '#8c8c88');
-    if (rnd() < 0.5) barrel(P, x1 + 2, 0, z1); else crate(P, x0 - 3, 0, z1 - 1, 2);
-    if (rnd() < 0.5) lamp(P, 1, 5, z1 + 1, 0);
+    doorZ(P, -1, 0, z1, 2, 4, { c: ['#6b4423', '#2f5a7a', '#7a2a20'][seed % 3] });
+    winZ(P, x0 + 2, 2, z1, 2, 2, { shutter, flowers: '#ff6fa8' });
+    if (hw >= 5) winZ(P, x1 - 2, 2, z1, 2, 2, { shutter, flowers: '#ffd23f' });
+    if (two) { winZ(P, x0 + 2, 8, z1, 2, 2, { shutter }); winZ(P, x1 - 2, 8, z1, 2, 2, { shutter }); }
+    winX(P, x1, 3, -2, 2, 2, {});
+    const axis = rnd() < 0.6 ? 'x' : 'z';
+    const ry = gable(P, x0, x1, z0, z1, wh + 1, axis, { c1: r1, c2: r2, mat: rm, over: 1, rise: two ? 1 : (seed % 2 ? 2 : 1), gable: ws === 1 ? planks(wallC) : plaster(ws === 2 ? '#c8bca8' : '#efe3c4') });
+    chimney(P, x1 - 2, z0 + 1, wh + 1, Math.max(ry + 1, wh + 6), ws === 3 ? '#8a4a3a' : '#9a5a46');
+    // porch lantern and clutter
+    lamp(P, 1, 5, z1 + 1, 0);
+    if (rnd() < 0.5) barrel(P, x1 + 1, 0, z1 - 1, '#8a5a32', true); else crate(P, x0 - 3, 0, z1 - 1, 2);
+    if (seed % 4 === 1) { v.box(x0 - 2, 0, z0, x0 - 2, 3, z0, W('#6b4a2e')); for (let z = z0; z <= z1 - 2; z++) v.set(x0 - 2, 4, z, MT('cloth', z & 1 ? '#f2efe6' : '#7ab0e0')); }
     return P;
   }
 
@@ -1564,44 +1882,44 @@
     const P = parts();
     const v = P.v;
     for (let y = 0; y <= 18; y++) v.cyl(0, y, 0, 4.6 - y * 0.08, y, stone('#d8d0c0'));
-    block(P, -1, 0, 3, 0, 4, 4, '#5a3a1e');
-    v.box(-2, 5, 4, 1, 5, 4, '#6b4a2e');
-    lit(P, 2, 9, 3); lit(P, -3, 13, 2);
-    v.cyl(0, 19, 0, 4, 19, '#6b4a2e');
-    v.cyl(0, 20, 0, 3.8, 25, (x, y) => (y % 2 ? '#8a4a2e' : '#7a3a26'), 0.6);
-    v.box(-1, 18, 4, 0, 20, 6, '#5a3a1e');
+    doorZ(P, -1, 0, 4, 2, 4, { c: '#5a3a1e' });
+    v.box(-2, 5, 4, 1, 5, 4, W('#6b4a2e'));
+    winZ(P, 2, 9, 3, 1, 2, { frame: '#6b4a2e' }); winZ(P, -3, 13, 2, 1, 2, { frame: '#6b4a2e' });
+    v.cyl(0, 19, 0, 4, 19, W('#6b4a2e'));
+    v.cyl(0, 20, 0, 3.8, 25, (x, y) => MT('roof', y % 2 ? '#8a4a2e' : '#7a3a26'), 0.6);
+    v.box(-1, 18, 4, 0, 20, 6, W('#5a3a1e'));
+    sack(P, 2, 0, 4, '#e8e0d0'); sack(P, 3, 0, 2, '#d8d0c0');
     const s = new Vox();
     for (let a = 0; a < 4; a++) {
       const ca = Math.round(Math.cos(a * Math.PI / 2)), sa = Math.round(Math.sin(a * Math.PI / 2));
       for (let k = 1; k <= 13; k++) {
-        s.set(ca * k, sa * k, 0, '#5a3a1e');
+        s.set(ca * k, sa * k, 0, W('#5a3a1e'));
         if (k > 3) for (let w = 1; w <= 3; w++) {
           const lattice = k % 3 === 0 || w === 3;
-          s.set(ca * k - sa * w, sa * k + ca * w, 0, lattice ? '#6b4a2e' : '#efe3c4');
+          s.set(ca * k - sa * w, sa * k + ca * w, 0, lattice ? W('#6b4a2e') : MT('cloth', '#efe3c4'));
         }
       }
     }
-    s.set(0, 0, 0, '#3a2614'); s.set(0, 0, 1, '#3a2614');
+    s.set(0, 0, 0, MT('metal', '#3a2614')); s.set(0, 0, 1, MT('metal', '#3a2614'));
     return { body: P, sails: s, hub: [0, 19, 7] };
   }
 
   function watchtower() {
     const P = parts();
     const v = P.v;
-    for (const [x, z] of [[-4, -4], [3, -4], [-4, 3], [3, 3]]) v.box(x, 0, z, x, 17, z, '#6b4423');
+    for (const [x, z] of [[-4, -4], [3, -4], [-4, 3], [3, 3]]) v.box(x, 0, z, x, 17, z, MT('bark', '#6b4423'));
     for (let y = 2; y <= 14; y += 6) {
-      v.line(-4, y, 3, 3, y + 5, 3, '#8a6238'); v.line(-4, y, -4, 3, y + 5, -4, '#8a6238');
-      v.line(-4, y, -4, -4, y + 5, 3, '#8a6238'); v.line(3, y, -4, 3, y + 5, 3, '#8a6238');
+      v.line(-4, y, 3, 3, y + 5, 3, W('#8a6238')); v.line(-4, y, -4, 3, y + 5, -4, W('#8a6238'));
+      v.line(-4, y, -4, -4, y + 5, 3, W('#8a6238')); v.line(3, y, -4, 3, y + 5, 3, W('#8a6238'));
     }
-    block(P, -5, 17, -5, 4, 17, 4, (x, y, z) => (x % 2 ? '#9a6b3e' : '#8a5a32'));
-    for (let x = -5; x <= 4; x++) for (let z = -5; z <= 4; z++) if (x === -5 || x === 4 || z === -5 || z === 4) { if ((x + z) % 2 === 0) v.set(x, 18, z, '#6b4423'); v.set(x, 19, z, '#8a6238'); }
-    for (const [x, z] of [[-5, -5], [4, -5], [-5, 4], [4, 4]]) v.box(x, 18, z, x, 22, z, '#6b4423');
-    roofHip(P, -5, 4, -5, 4, 23, '#c9a24a', '#d9b45a', 1);
-    // ladder on the front
-    for (let y = 0; y <= 16; y++) { v.set(-1, y, 5, '#8a6238'); v.set(1, y, 5, '#8a6238'); if (y % 2 === 0) v.set(0, y, 5, '#9a7044'); }
+    block(P, -5, 17, -5, 4, 17, 4, (x) => MT('plank', x % 2 ? '#9a6b3e' : '#8a5a32'));
+    for (let x = -5; x <= 4; x++) for (let z = -5; z <= 4; z++) if (x === -5 || x === 4 || z === -5 || z === 4) { if ((x + z) % 2 === 0) v.set(x, 18, z, W('#6b4423')); v.set(x, 19, z, W('#8a6238')); }
+    for (const [x, z] of [[-5, -5], [4, -5], [-5, 4], [4, 4]]) v.box(x, 18, z, x, 22, z, W('#6b4423'));
+    hip(P, -5, 4, -5, 4, 23, { c1: '#c9a24a', c2: '#b8913c', mat: 'thatch', over: 1 });
+    for (let y = 0; y <= 16; y++) { v.set(-1, y, 5, W('#8a6238')); v.set(1, y, 5, W('#8a6238')); if (y % 2 === 0) v.set(0, y, 5, W('#9a7044')); }
     torch(P, 3, 18, 3, 2);
     lit(P, -2, 18, -2, '#ffb13a');
-    flag(P, 0, 28, 0, 5, 5, 3, '#111111', '#ffffff');
+    flag(P, 0, 28, 0, 5, 6, 4, '#111111', '#ffffff');
     return P;
   }
 
@@ -1610,53 +1928,53 @@
     const P = parts();
     const v = P.v;
     const cols = [['#c8323a', '#f2efe6'], ['#3a7bd5', '#f2efe6'], ['#f0c03a', '#7a3fb0'], ['#3f8f5a', '#f2efe6']][seed % 4];
-    for (const [x, z] of [[-4, -2], [3, -2], [-4, 2], [3, 2]]) v.box(x, 0, z, x, 7, z, '#6b4a2e');
-    for (let x = -5; x <= 4; x++) for (let z = -3; z <= 3; z++) v.set(x, 8 + (z < 0 ? 1 : 0) + (z < -2 ? 0 : 0), z, (x & 1) ? cols[0] : cols[1]);
-    for (let x = -5; x <= 4; x++) v.set(x, 7, 3, (x & 1) ? cols[0] : cols[1]);
+    for (const [x, z] of [[-4, -2], [3, -2], [-4, 2], [3, 2]]) v.box(x, 0, z, x, 7 + (z < 0 ? 1 : 0), z, W('#6b4a2e'));
+    awning(P, -5, 4, -3, 3, 9, cols[0], cols[1]);
     block(P, -4, 0, 1, 3, 2, 2, planks('#a0703c'));
     const goods = [['#ff7b3a', '#ffd23f', '#3cb043'], ['#9ab8c8', '#c8783a', '#9ab8c8'], ['#c8323a', '#3a7bd5', '#f0c03a'], ['#e0d0a0', '#a07a4a', '#e0d0a0']][seed % 4];
-    for (let x = -4; x <= 3; x++) v.set(x, 3, 2, goods[(x + 4) % 3]);
-    for (let x = -3; x <= 2; x += 2) v.set(x, 3, 1, goods[(x + 5) % 3]);
-    crate(P, -6, 0, -1, 2); sack(P, 5, 0, -1);
+    for (let x = -4; x <= 3; x++) { v.set(x, 3, 2, MT('plain', goods[(x + 4) % 3])); if (x % 2) v.set(x, 4, 2, MT('plain', shade(goods[(x + 5) % 3], 1.1))); }
+    for (let x = -3; x <= 2; x += 2) v.set(x, 3, 1, MT('plain', goods[(x + 5) % 3]));
+    crate(P, -7, 0, -1, 2); sack(P, 5, 0, -1); barrel(P, 5, 0, 1, '#8a5a32', true);
     return P;
   }
 
-  /** Campfire with stones, logs, log seats; smoke emitter in the middle. */
+  /** Campfire with stones, logs, log seats and a cooking spit; smoke emitter in the middle. */
   function campfire() {
     const P = parts();
     const v = P.v;
-    for (let a = 0; a < 12; a++) { const t = a / 12 * Math.PI * 2; v.set(Math.round(Math.cos(t) * 3), 0, Math.round(Math.sin(t) * 3), a % 2 ? '#8a8a86' : '#6e6e6a'); }
-    v.line(-2, 0, -2, 2, 1, 2, '#5a3a1e'); v.line(-2, 0, 2, 2, 1, -2, '#6b4423');
+    for (let a = 0; a < 14; a++) { const t = a / 14 * Math.PI * 2; v.set(Math.round(Math.cos(t) * 3), 0, Math.round(Math.sin(t) * 3), MT('rock', a % 2 ? '#8a8a86' : '#6e6e6a')); }
+    v.line(-2, 0, -2, 2, 1, 2, MT('bark', '#5a3a1e')); v.line(-2, 0, 2, 2, 1, -2, MT('bark', '#6b4423'));
     lit(P, 0, 1, 0, '#ff6a1a'); lit(P, 1, 1, 0, '#ff9a2a'); lit(P, 0, 1, 1, '#ff9a2a'); lit(P, -1, 1, 0, '#ff6a1a'); lit(P, 0, 1, -1, '#ff6a1a');
     lit(P, 0, 2, 0, '#ffd23f'); lit(P, 0, 3, 0, '#fff2a0'); lit(P, 1, 2, 0, '#ffb13a');
     for (const [x, z, alongX] of [[-1, 7, true], [-8, 0, false], [7, -1, false]]) {
-      if (alongX) v.box(x - 2, 0, z, x + 2, 1, z, (x & 1) ? '#8a5a32' : '#7a4a2a');
-      else v.box(x, 0, z - 2, x, 1, z + 2, '#8a5a32');
+      if (alongX) v.box(x - 2, 0, z, x + 2, 1, z, MT('bark', (x & 1) ? '#8a5a32' : '#7a4a2a'));
+      else v.box(x, 0, z - 2, x, 1, z + 2, MT('bark', '#8a5a32'));
     }
-    // cooking spit
-    v.box(-3, 0, 0, -3, 4, 0, '#5a3a1e'); v.box(3, 0, 0, 3, 4, 0, '#5a3a1e'); v.box(-3, 4, 0, 3, 4, 0, '#3a2a1a');
-    v.box(-1, 3, 0, 0, 3, 0, '#c8783a');
+    v.box(-3, 0, 0, -3, 4, 0, W('#5a3a1e')); v.box(3, 0, 0, 3, 4, 0, W('#5a3a1e')); v.box(-3, 4, 0, 3, 4, 0, MT('metal', '#3a2a1a'));
+    v.box(-1, 3, 0, 0, 3, 0, MT('plain', '#c8783a'));
+    v.box(5, 0, 4, 6, 1, 5, MT('metal', '#3a3a3a')); v.set(5, 2, 4, MT('metal', '#2a2a2a'));
     P.smoke.push([0, 5, 0]);
     return P;
   }
 
   function lampPost() {
     const P = parts();
-    P.v.box(0, 0, 0, 0, 10, 0, '#4a3a2a'); P.v.box(0, 10, 0, 2, 10, 0, '#4a3a2a');
-    P.v.set(2, 9, 0, '#2a2a2a'); lit(P, 2, 8, 0); P.v.set(2, 7, 0, '#2a2a2a');
-    P.v.box(-1, 0, -1, 1, 0, 1, '#6e6e6a');
+    P.v.box(0, 0, 0, 0, 10, 0, MT('metal', '#3a3430')); P.v.box(0, 10, 0, 2, 10, 0, MT('metal', '#3a3430'));
+    P.v.set(2, 9, 0, MT('metal', '#2a2a2a')); lit(P, 2, 8, 0); lit(P, 2, 7, 0); P.v.set(2, 6, 0, MT('metal', '#2a2a2a'));
+    P.v.box(-1, 0, -1, 1, 0, 1, MT('stone', '#6e6e6a'));
     return P;
   }
-  function torchPost() { const P = parts(); torch(P, 0, 0, 0, 7); return P; }
+  function torchPost() { const P = parts(); torch(P, 0, 0, 0, 7); P.v.set(0, 0, 1, MT('rock', '#7a7a76')); P.v.set(1, 0, 0, MT('rock', '#8a8a86')); return P; }
 
   function well() {
     const P = parts();
     const v = P.v;
     v.cyl(0, 0, 0, 3, 3, stone('#9a9a96'));
-    v.cyl(0, 3, 0, 1.9, 3, '#2a6a9a');
-    v.box(-3, 4, 0, -3, 10, 0, '#6b4423'); v.box(3, 4, 0, 3, 10, 0, '#6b4423');
-    roofX(P, -3, 3, -1, 1, 11, '#b03a2e', '#962f25', null, 1);
-    v.box(-2, 8, 0, 2, 8, 0, '#5a3a1e'); v.box(0, 5, 0, 0, 7, 0, '#d8d0b0'); v.box(0, 4, 0, 1, 5, 1, '#8a6238');
+    v.cyl(0, 3, 0, 1.9, 3, MT('water', '#2a6a9a'));
+    v.box(-3, 4, 0, -3, 10, 0, MT('bark', '#6b4423')); v.box(3, 4, 0, 3, 10, 0, MT('bark', '#6b4423'));
+    gable(P, -3, 3, -1, 1, 11, 'x', { c1: '#b8402e', c2: '#9a3326', over: 1, gable: planks('#8a5a32') });
+    v.box(-2, 8, 0, 2, 8, 0, W('#5a3a1e')); v.box(0, 5, 0, 0, 7, 0, MT('cloth', '#d8d0b0')); v.box(0, 4, 0, 1, 5, 1, MT('plank', '#8a6238'));
+    v.set(4, 8, 0, W('#5a3a1e')); v.set(4, 7, 0, W('#5a3a1e'));
     return P;
   }
 
@@ -1667,14 +1985,15 @@
     const v = P.v;
     for (let x = 0; x < len; x++) {
       const y = Math.round(Math.sin(x / (len - 1) * Math.PI) * 2) + 1;
-      for (let z = -3; z <= 3; z++) v.set(x - len / 2, y, z, (x % 2) ? '#9a6b3e' : '#8a5a32');
-      if (x % 3 === 0) { v.box(x - len / 2, y + 1, -3, x - len / 2, y + 3, -3, '#6b4423'); v.box(x - len / 2, y + 1, 3, x - len / 2, y + 3, 3, '#6b4423'); }
-      v.set(x - len / 2, y + 3, -3, '#6b4423'); v.set(x - len / 2, y + 3, 3, '#6b4423');
+      for (let z = -3; z <= 3; z++) v.set(x - len / 2, y, z, MT('plank', (x % 2) ? '#9a6b3e' : '#8a5a32'));
+      if (x % 3 === 0) { v.box(x - len / 2, y + 1, -3, x - len / 2, y + 3, -3, W('#6b4423')); v.box(x - len / 2, y + 1, 3, x - len / 2, y + 3, 3, W('#6b4423')); }
+      v.set(x - len / 2, y + 3, -3, W('#7a5530')); v.set(x - len / 2, y + 3, 3, W('#7a5530'));
+      if (x === 0 || x === len - 1) for (const z of [-3, 3]) v.box(x - len / 2, 0, z, x - len / 2, y, z, MT('bark', '#5a3a1e'));
     }
     return P;
   }
 
-  /** Small rowboat (bow toward +x), optional oars. */
+  /** Small rowboat (bow toward +x): planked hull with ribs, seats, oars or a net. */
   function rowboat(color, seed) {
     const P = parts();
     const v = P.v;
@@ -1683,37 +2002,38 @@
       const t = Math.abs(x) / 6.5;
       const w = Math.round(2.6 * Math.sqrt(1 - t * t));
       for (let z = -w; z <= w; z++) {
-        v.set(x, 0, z, shade(c, 0.75));
-        if (Math.abs(z) === w || Math.abs(x) === 6) { v.set(x, 1, z, c); v.set(x, 2, z, trim); }
-        else v.set(x, 1, z, '#8a5a32');
+        v.set(x, 0, z, MT('plank', shade(c, 0.72)));
+        if (Math.abs(z) === w || Math.abs(x) === 6) { v.set(x, 1, z, MT('plank', shade(c, x & 1 ? 1 : 0.92))); v.set(x, 2, z, W(trim)); }
+        else v.set(x, 1, z, MT('plank', x % 3 === 0 ? '#6b4423' : '#8a5a32'));
       }
     }
-    v.box(-1, 2, -2, 0, 2, 2, '#9a6b3e'); v.box(3, 2, -1, 3, 2, 1, '#9a6b3e');
-    if (seed % 2) { v.line(0, 3, -3, -3, 1, -7, '#c8a26a'); v.line(0, 3, 3, -3, 1, 7, '#c8a26a'); }
-    else { v.box(-3, 2, -1, -3, 2, 1, '#b08a5a'); v.set(-4, 2, 0, '#d8d0b0'); }
+    v.box(-1, 2, -2, 0, 2, 2, MT('plank', '#9a6b3e')); v.box(3, 2, -1, 3, 2, 1, MT('plank', '#9a6b3e'));
+    v.set(7, 1, 0, W(trim));
+    if (seed % 2) { v.line(0, 3, -3, -3, 1, -7, W('#c8a26a')); v.line(0, 3, 3, -3, 1, 7, W('#c8a26a')); v.set(-3, 1, -7, W('#b08a5a')); v.set(-3, 1, 7, W('#b08a5a')); }
+    else { v.box(-4, 2, -1, -2, 2, 1, MT('cloth', '#d8d0b0')); v.set(-4, 3, 0, MT('cloth', '#c8c0a0')); v.set(-3, 3, 0, MT('plain', '#9ab8c8')); }
     return P;
   }
 
-  /** Fishing nets drying on two poles (along z). */
+  /** Fishing nets drying on two poles (along z), floats and a basket of fish. */
   function nets() {
     const P = parts();
     const v = P.v;
-    v.box(0, 0, -5, 0, 9, -5, '#6b4423'); v.box(0, 0, 5, 0, 9, 5, '#6b4423'); v.box(0, 9, -5, 0, 9, 5, '#6b4423');
-    for (let z = -4; z <= 4; z++) for (let y = 2; y <= 8; y++) if ((y + z) % 2 === 0 || y === 8) v.set(0, y - (Math.abs(z) < 2 ? 1 : 0), z, '#d8d0b0');
-    v.set(0, 4, 2, '#e8b04a'); v.set(0, 6, -3, '#e8b04a');
-    v.cyl(3, 0, 0, 1.6, 1, '#c8a26a'); v.set(3, 1, 0, '#8a6238');
+    v.box(0, 0, -5, 0, 9, -5, MT('bark', '#6b4423')); v.box(0, 0, 5, 0, 9, 5, MT('bark', '#6b4423')); v.box(0, 9, -5, 0, 9, 5, W('#6b4423'));
+    for (let z = -4; z <= 4; z++) for (let y = 2; y <= 8; y++) if ((y + z) % 2 === 0 || y === 8) v.set(0, y - (Math.abs(z) < 2 ? 1 : 0), z, MT('cloth', '#d8d0b0'));
+    v.set(0, 4, 2, MT('plain', '#e8b04a')); v.set(0, 6, -3, MT('plain', '#e8b04a')); v.set(0, 5, -1, MT('plain', '#c8323a'));
+    v.cyl(3, 0, 0, 1.6, 1, MT('thatch', '#c8a26a')); v.set(3, 2, 0, MT('metal', '#9ab8c8')); v.set(2, 2, 1, MT('metal', '#b8c8d0'));
     return P;
   }
 
-  /** Pile of cargo: crates, barrels and sacks. */
+  /** Pile of cargo: crates, barrels and sacks, sometimes a rope coil. */
   function cargo(seed) {
     const rnd = VC.util.rng(seed || 3);
     const P = parts();
     crate(P, -4, 0, -2, 3); crate(P, -1, 0, -3, 3, '#8a5a32');
     if (rnd() < 0.6) crate(P, -3, 3, -2, 2, '#b08050');
-    barrel(P, 4, 0, 0); if (rnd() < 0.5) barrel(P, 2, 0, 3, '#7a4a2a');
+    barrel(P, 3, 0, -1); if (rnd() < 0.5) barrel(P, 1, 0, 2, '#7a4a2a', true);
     sack(P, -4, 0, 2); if (rnd() < 0.5) sack(P, -2, 0, 3, '#b8985a');
-    if (rnd() < 0.5) { P.v.cyl(0, 0, 3, 1.4, 0, '#c8a26a'); P.v.set(0, 1, 3, '#a08050'); }
+    if (rnd() < 0.5) rope(P, 5, 0, 3);
     return P;
   }
 
@@ -1722,62 +2042,107 @@
     const rnd = VC.util.rng(seed || 5);
     const P = parts();
     const v = P.v;
-    for (let x = -6; x <= 5; x++) for (let z = -4; z <= 3; z++) v.set(x, 0, z, z % 2 ? '#6b4a2e' : '#7a5a3a');
+    for (let x = -6; x <= 5; x++) for (let z = -4; z <= 3; z++) v.set(x, 0, z, MT('dirt', z % 2 ? '#6b4a2e' : '#7a5a3a'));
     for (let x = -5; x <= 4; x += 2) for (let z = -4; z <= 3; z += 2) {
       const r = rnd();
-      if (r < 0.4) { v.box(x, 1, z, x + 1, 1, z, '#5cb84f'); v.set(x, 2, z, '#7ac862'); }
-      else if (r < 0.7) { v.set(x, 1, z, '#3f8f3a'); v.set(x, 2, z, '#4fa64a'); v.set(x + 1, 1, z, '#ff8a2a'); }
-      else { v.set(x, 1, z, '#3f8f3a'); v.set(x, 2, z, '#e2553a'); }
+      if (r < 0.4) { v.box(x, 1, z, x + 1, 1, z, MT('leaf', '#5cb84f')); v.set(x, 2, z, MT('leaf', '#7ac862')); }
+      else if (r < 0.7) { v.set(x, 1, z, MT('leaf', '#3f8f3a')); v.set(x, 2, z, MT('leaf', '#4fa64a')); v.set(x + 1, 1, z, MT('plain', '#ff8a2a')); }
+      else { v.set(x, 1, z, MT('leaf', '#3f8f3a')); v.set(x, 2, z, MT('plain', '#e2553a')); }
     }
     fence(P, -7, -5, 6, -5, 0); fence(P, -7, -5, -7, 4, 0); fence(P, 6, -5, 6, 4, 0);
-    // scarecrow
-    v.box(0, 1, -6, 0, 9, -6, '#6b4423'); v.box(-3, 7, -6, 3, 7, -6, '#6b4423');
-    v.box(-1, 5, -6, 1, 8, -6, '#c8323a'); v.box(0, 9, -6, 0, 10, -6, '#e8d8a0'); v.box(-1, 11, -6, 1, 11, -6, '#c9a24a'); v.set(0, 12, -6, '#c9a24a');
+    v.box(0, 1, -6, 0, 9, -6, W('#6b4423')); v.box(-3, 7, -6, 3, 7, -6, W('#6b4423'));
+    v.box(-1, 5, -6, 1, 8, -6, MT('cloth', '#c8323a')); v.box(0, 9, -6, 0, 10, -6, MT('cloth', '#e8d8a0')); v.box(-1, 11, -6, 1, 11, -6, MT('thatch', '#c9a24a')); v.set(0, 12, -6, MT('thatch', '#c9a24a'));
     return P;
   }
 
   function bench() {
     const P = parts();
-    P.v.box(-3, 2, 0, 3, 2, 1, '#9a6b3e'); P.v.box(-3, 0, 0, -3, 1, 1, '#6b4423'); P.v.box(3, 0, 0, 3, 1, 1, '#6b4423');
-    P.v.box(-3, 3, -1, 3, 4, -1, '#8a5a32');
+    P.v.box(-3, 2, 0, 3, 2, 1, MT('plank', '#9a6b3e')); P.v.box(-3, 0, 0, -3, 1, 1, MT('metal', '#3a3430')); P.v.box(3, 0, 0, 3, 1, 1, MT('metal', '#3a3430'));
+    P.v.box(-3, 3, -1, 3, 4, -1, MT('plank', '#8a5a32'));
     return P;
   }
   function signpost() {
     const P = parts();
-    P.v.box(0, 0, 0, 0, 9, 0, '#6b4423');
-    P.v.box(-4, 8, 1, 2, 9, 1, '#c8a26a'); P.v.set(3, 8, 1, '#c8a26a'); P.v.box(-3, 6, 1, 3, 6, 1, '#b08a5a'); P.v.set(-4, 6, 1, '#b08a5a');
+    P.v.box(0, 0, 0, 0, 10, 0, MT('bark', '#6b4423'));
+    P.v.box(-4, 8, 1, 2, 9, 1, MT('plank', '#c8a26a')); P.v.set(3, 8, 1, MT('plank', '#c8a26a')); P.v.set(3, 9, 1, MT('plank', '#b8925a'));
+    P.v.box(-3, 5, 1, 3, 6, 1, MT('plank', '#b08a5a')); P.v.set(-4, 5, 1, MT('plank', '#b08a5a'));
+    P.v.box(-2, 9, 2, 0, 9, 2, MT('plain', '#5a3a1e'));
     return P;
   }
   function cannon() {
     const P = parts();
-    P.v.box(-3, 0, -2, 2, 1, 2, '#5a3a1e');
-    P.v.box(-3, 2, -1, 4, 3, 0, '#2a2a2a'); P.v.set(5, 3, 0, '#1a1a1a'); P.v.set(-4, 2, 0, '#2a2a2a');
-    for (const [x, z] of [[-3, -2], [-3, 2], [2, -2], [2, 2]]) P.v.set(x, 0, z, '#3a2614');
-    P.v.set(-1, 0, 4, '#2a2a2a'); P.v.set(0, 0, 4, '#2a2a2a'); P.v.set(-1, 0, 5, '#2a2a2a');
+    P.v.box(-3, 0, -2, 2, 1, 2, W('#5a3a1e'));
+    P.v.box(-3, 2, -1, 4, 3, 0, MT('metal', '#2a2a2a')); P.v.set(5, 3, 0, MT('metal', '#1a1a1a')); P.v.set(-4, 2, 0, MT('metal', '#2a2a2a'));
+    for (const [x, z] of [[-3, -2], [-3, 2], [2, -2], [2, 2]]) P.v.set(x, 0, z, W('#3a2614'));
+    for (const [x, z, y] of [[-1, 4, 0], [0, 4, 0], [-1, 5, 0], [-1, 4, 1]]) P.v.set(x, y, z, MT('metal', '#2a2a2a'));
+    return P;
+  }
+  /** Lobster / crab traps stacked by the water. */
+  function traps() {
+    const P = parts();
+    for (const [x, y, z] of [[-3, 0, -1], [0, 0, -1], [-2, 3, -1], [1, 0, 2]]) {
+      for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) for (let dz = 0; dz < 3; dz++) {
+        const e = (dx === 0 || dx === 2) + (dy === 0 || dy === 2) + (dz === 0 || dz === 2);
+        if (e >= 2 || (dy === 0)) P.v.set(x + dx, y + dy, z + dz, W(e >= 2 ? '#6b4a2e' : '#8a6238'));
+      }
+    }
+    P.v.set(-5, 0, 2, MT('plain', '#e8b04a')); P.v.set(-5, 1, 2, MT('plain', '#c8323a'));
+    return P;
+  }
+  /** Laundry line between two posts (cloth sways). */
+  function laundry(seed) {
+    const P = parts();
+    P.v.box(-6, 0, 0, -6, 8, 0, MT('bark', '#6b4423')); P.v.box(6, 0, 0, 6, 8, 0, MT('bark', '#6b4423'));
+    for (let x = -5; x <= 5; x++) P.v.set(x, 8 - (Math.abs(x) < 3 ? 1 : 0), 0, MT('cloth', '#d8d0b0'));
+    const f = new Vox();
+    const cols = ['#f2efe6', '#7ab0e0', '#c8323a', '#f0c03a', '#7ac862'];
+    for (let k = 0; k < 4; k++) {
+      const x0 = -5 + k * 3, h = 3 + (k + (seed || 0)) % 2;
+      for (let x = x0; x < x0 + 2; x++) for (let j = 1; j <= h; j++) f.set(x, 7 - j - (Math.abs(x) < 3 ? 1 : 0) + 1, 0, MT('cloth', cols[(k + (seed || 0)) % 5]));
+    }
+    P.cloth.push({ vox: f, fn: (x, y, z, cx, cy) => [0, 0, 0.015 * Math.max(0, 8 - cy)] });
+    return P;
+  }
+  /** Small dock crane with a hanging net of cargo. */
+  function dockCrane() {
+    const P = parts();
+    const v = P.v;
+    v.box(0, 0, 0, 1, 14, 1, MT('bark', '#6b4423'));
+    v.line(0, 13, 0, 8, 15, 0, W('#6b4423')); v.line(0, 9, 0, 6, 14, 0, W('#5a3a1e'));
+    v.line(8, 15, 0, 8, 8, 0, MT('cloth', '#d8d0b0'));
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let dy = 0; dy <= 2; dy++) if ((dx + dz + dy) & 1) v.set(8 + dx, 5 + dy, dz, MT('cloth', '#c8b48a'));
+    v.set(8, 6, 0, MT('plank', '#a0703c'));
+    v.cyl(0.5, 0, 0.5, 2.2, 0, MT('stone', '#8a8a86'));
     return P;
   }
 
   /**
-   * Pier deck on posts: planks from (x0,z0) to (x1,z1) inclusive (planks run across z),
+   * Pier deck on posts: planks from (x0,z0) to (x1,z1) inclusive (planks run across the longer side),
    * deck top layer y, posts every 5 voxels along the edges down to yb.
    */
   function deck(P, x0, z0, x1, z1, y, yb) {
     const v = P.v;
+    const alongZ = z1 - z0 >= x1 - x0;
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
-      const plank = (z1 - z0 >= x1 - x0) ? z : x;
-      v.set(x, y, z, hash(plank, 3, 1) < 0.15 ? '#7a4a2a' : plank % 2 ? '#9a6b3e' : '#a87a48');
+      const plank = alongZ ? z : x, along = alongZ ? x : z;
+      const seam = mod(along + plank * 5, 9) === 0;
+      v.set(x, y, z, MT('plank', shade(hash(plank, 3, 1) < 0.15 ? '#7a4a2a' : plank % 2 ? '#9a6b3e' : '#a87a48', seam ? 0.82 : 1)));
     }
     for (let x = x0; x <= x1; x += 5) for (let z = z0; z <= z1; z += 5) {
       if (x !== x0 && x !== x1 && z !== z0 && z !== z1 && x + 5 <= x1 && z + 5 <= z1) continue;
-      v.box(x, yb, z, x, y - 1, z, '#5a3a1e');
+      v.box(x, yb, z, x, y - 1, z, MT('bark', '#5a3a1e'));
     }
-    for (const [x, z] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) v.box(x, yb, z, x, y - 1, z, '#5a3a1e');
+    for (const [x, z] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) v.box(x, yb, z, x, y - 1, z, MT('bark', '#5a3a1e'));
+    // a beam under the deck edge
+    for (let x = x0; x <= x1; x++) { v.set(x, y - 1, z0, W('#6b4423')); v.set(x, y - 1, z1, W('#6b4423')); }
   }
 
   VC.Models = {
-    ship, playerStyle, STYLES, DIMS, CREATURES, palm, palmHD, tree, bush, rock, flowers, grass, shells, driftwood,
-    building, buildingParts, BUILD, HD, parts, kit: { block, winZ, winX, doorZ, roofX, roofZ, roofHip, chimney, barrel, crate, sack, lamp, torch, flag, fence, lit, deck, stone, planks, brick, hash },
-    chest, parrot, coin, bottle, boat, cloudPuff, smallIsland, shade,
+    ship, playerStyle, STYLES, DIMS, EMBLEMS, CREATURES, palm, palmHD, tree, treeHD, bush, bushHD, rock, flowers, grass, shells, driftwood,
+    building, buildingParts, BUILD, HD, parts, fitCell,
+    kit: { block, frameBox, winZ, winX, doorZ, gable, hip, chimney, barrel, crate, sack, lamp, torch, flag, banner, awning, fence, seal, sign, rope, gun, lit, deck, planks, vplanks, stone, brick, plaster, cobble, rockC, timber, tileOf, hash, mod, W },
+    chest, parrot, coin, bottle, boat, cloudPuff, smallIsland, shade, MT,
     cottage, windmill, watchtower, stall, campfire, lampPost, torchPost, well, bridge, rowboat, nets, cargo, garden, bench, signpost, cannon,
+    traps, laundry, dockCrane,
   };
 })(window.VC);
