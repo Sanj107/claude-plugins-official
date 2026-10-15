@@ -665,7 +665,7 @@
     if (this.playerShip) this.islandGroup.remove(this.playerShip);
     if (!state.unlocked.ship && state.story.idx < 4) {
       // Wrecked sloop lying on its side on the beach until the prologue repairs it.
-      const wreck = this.shipMesh(this.playerShipOpts(state, 1), 'wreck');
+      const wreck = this.shipMesh(Object.assign(this.playerShipOpts(state, 1), { wreck: true }), 'wreck');
       wreck.rotation.set(0, -0.5, 0.8, 'YXZ');
       wreck.position.set(4.9, 0.32, 7.35);
       this.islandGroup.add(wreck);

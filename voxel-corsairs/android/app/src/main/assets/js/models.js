@@ -1,46 +1,52 @@
 'use strict';
 // Procedural voxel art: ships of every tier and faction, sea creatures, island nature, the 16
-// buildings and village props. Ships, creatures and the terrain use 0.25 units per voxel; island
-// buildings and props are "part sets" at 0.125 units per voxel (see the detail kit below).
+// buildings and village props. Ships, island buildings and props use 0.125 units per voxel (ships
+// return their scale; island models are "part sets", see the detail kit below); creatures, the far
+// jungle and the terrain use 0.25. Every voxel is tagged with a surface material (VC.Voxel.mat).
 (function (VC) {
   const { Vox } = VC.Voxel;
 
+  /** Colour scaled by k; keeps the material tag of a tagged colour (see VC.Voxel.mat). */
   function shade(hex, k) {
     const c = VC.Voxel.toInt(hex);
     const r = Math.min(255, Math.round(((c >> 16) & 255) * k));
     const g = Math.min(255, Math.round(((c >> 8) & 255) * k));
     const b = Math.min(255, Math.round((c & 255) * k));
-    return (r << 16) | (g << 8) | b;
+    return ((r << 16) | (g << 8) | b) | (c & 0x7f000000);
   }
+  /** Material-tagged colour: MT('plank', '#8a5a32'). */
+  const MT = VC.Voxel.mat;
 
-  // ------------------------------------------------------------------ ships
+  // ------------------------------------------------------------------ ships (0.125 units per voxel)
+  // Hull sizes per tier in detail voxels: length, beam, hull height, mast positions (fraction of the
+  // length from the stern), mast height, stern castle length (fraction), gun-port rows, forecastle.
   const DIMS = [
-    { L: 12, W: 5, H: 2, masts: [0.5], mh: 7, castle: 0, rows: 0 },
-    { L: 18, W: 6, H: 3, masts: [0.55], mh: 12, castle: 0.2, rows: 1 },
-    { L: 24, W: 7, H: 4, masts: [0.36, 0.66], mh: 15, castle: 0.2, rows: 1 },
-    { L: 30, W: 8, H: 5, masts: [0.3, 0.55, 0.78], mh: 18, castle: 0.22, rows: 1, nest: true },
-    { L: 34, W: 10, H: 6, masts: [0.28, 0.52, 0.76], mh: 20, castle: 0.27, rows: 1, high: true, nest: true },
-    { L: 38, W: 11, H: 8, masts: [0.28, 0.52, 0.76], mh: 22, castle: 0.24, rows: 2, nest: true },
-    { L: 40, W: 11, H: 7, masts: [0.28, 0.52, 0.76], mh: 22, castle: 0.24, rows: 2, nest: true },
-    { L: 46, W: 12, H: 8, masts: [0.22, 0.42, 0.62, 0.8], mh: 24, castle: 0.24, rows: 2, nest: true },
+    { L: 26, W: 10, H: 5, masts: [0.5], mh: 15, castle: 0, rows: 0 },
+    { L: 36, W: 12, H: 6, masts: [0.55], mh: 24, castle: 0.22, rows: 0 },
+    { L: 48, W: 14, H: 8, masts: [0.36, 0.66], mh: 30, castle: 0.22, rows: 1, fc: true },
+    { L: 60, W: 16, H: 10, masts: [0.3, 0.55, 0.78], mh: 36, castle: 0.23, rows: 1, nest: true, fc: true },
+    { L: 68, W: 20, H: 12, masts: [0.28, 0.52, 0.76], mh: 40, castle: 0.27, rows: 1, high: true, nest: true, fc: true },
+    { L: 76, W: 22, H: 16, masts: [0.28, 0.52, 0.76], mh: 44, castle: 0.25, rows: 2, nest: true, fc: true },
+    { L: 80, W: 22, H: 14, masts: [0.28, 0.52, 0.76], mh: 44, castle: 0.25, rows: 2, nest: true, fc: true },
+    { L: 92, W: 24, H: 16, masts: [0.22, 0.42, 0.62, 0.8], mh: 48, castle: 0.24, rows: 2, nest: true, fc: true },
   ];
 
   const STYLES = {
-    navy: { hull: '#1f3e66', trim: '#e9e3d2', sail: '#f4f1e8', flag: '#1d4f91', fg: '#f0c03a', emblem: 'crown', deck: '#c8a26a' },
+    navy: { hull: '#1f3e66', trim: '#e9e3d2', sail: '#f4f1e8', flag: '#1d4f91', fg: '#f0c03a', emblem: 'crown', deck: '#c8a26a', band: '#e0b84a', figure: '#f0c03a' },
     merchant: { hull: '#9a6b3e', trim: '#d9b26a', sail: '#efe3c4', stripe: '#3f8f5a', flag: '#2f7a46', fg: '#fff' },
     smuggler: { hull: '#6b4a2e', trim: '#4a3220', sail: '#9a948a', flag: null },
     fisher: { hull: '#a0703c', trim: '#6b4a2e', sail: '#d8c9a3', flag: null, patch: '#b5a07a' },
-    rust: { hull: '#7a4a2a', trim: '#c9663a', sail: '#b9a27a', flag: '#111', fg: '#c9663a', emblem: 'skull' },
+    rust: { hull: '#7a4a2a', trim: '#c9663a', sail: '#b9a27a', flag: '#111', fg: '#c9663a', emblem: 'skull', patch: '#9a8460' },
     blue: { hull: '#24385c', trim: '#d9cfb4', sail: '#3a7bd5', flag: '#111', fg: '#3a7bd5', emblem: 'skull' },
     ghost: { hull: '#3d5c5a', trim: '#7dffc8', sail: '#bfeee0', flag: '#0d1a1a', fg: '#7dffc8', tattered: 0.22, emblem: 'skull', lamp: '#7dffc8' },
     bone: { hull: '#d9cfb4', trim: '#8a7a60', sail: '#9b9b9b', flag: '#111', fg: '#d9cfb4', tattered: 0.3 },
     fire: { hull: '#2c1a14', trim: '#ff6a2b', sail: '#c8323a', flag: '#111', fg: '#ff6a2b', emblem: 'skull', lamp: '#ff8a3a' },
     black: { hull: '#1c1c22', trim: '#b03030', sail: '#2b2b30', flag: '#7a0f12', fg: '#fff', emblem: 'skull' },
-    ice: { hull: '#dfefff', trim: '#7aa7e0', sail: '#f4f8ff', flag: '#1d4f91', fg: '#f0c03a', emblem: 'crown', lamp: '#bfefff' },
+    ice: { hull: '#dfefff', trim: '#7aa7e0', sail: '#f4f8ff', flag: '#1d4f91', fg: '#f0c03a', emblem: 'crown', lamp: '#bfefff', band: '#7aa7e0' },
     brass: { hull: '#b5893a', trim: '#6b4f1f', sail: null, steam: true, gears: true },
     abyss: { hull: '#1d1a3a', trim: '#a24bff', sail: '#4b3a8a', flag: '#000', fg: '#a24bff', tattered: 0.25, emblem: 'eye', lamp: '#c58bff' },
-    iron: { hull: '#4a4f57', trim: '#2e3238', sail: null, steam: true, rivets: true },
-    raven: { hull: '#15151c', trim: '#f0c03a', sail: '#2a2a35', flag: '#15151c', fg: '#f0c03a', emblem: 'raven' },
+    iron: { hull: '#4a4f57', trim: '#2e3238', sail: null, steam: true, rivets: true, flag: '#1d4f91', fg: '#f0c03a', emblem: 'crown' },
+    raven: { hull: '#15151c', trim: '#f0c03a', sail: '#2a2a35', flag: '#15151c', fg: '#f0c03a', emblem: 'raven', band: '#f0c03a' },
     heart: { hull: '#15151c', trim: '#5ff3ff', sail: '#4fd9ff', flag: '#15151c', fg: '#5ff3ff', emblem: 'heart', lamp: '#5ff3ff' },
   };
 
@@ -49,10 +55,10 @@
     const sail = sk.sail.find(x => x.id === skin.sail) || sk.sail[0];
     const flag = sk.flag.find(x => x.id === skin.flag) || sk.flag[0];
     const hull = sk.hull.find(x => x.id === skin.hull) || sk.hull[0];
+    const em = { heart: 'heart', anchor: 'anchor', kraken: 'eye', sabres: 'sabres' }[skin.flag] || 'skull';
     return {
       hull: hull.color, trim: hull.trim, sail: sail.color, stripe: sail.stripe, flag: flag.color, fg: flag.fg,
-      emblem: skin.flag === 'heart' ? 'heart' : skin.flag === 'anchor' ? 'anchor' : skin.flag === 'kraken' ? 'eye' : 'skull',
-      ghost: skin.sail === 'ghost', lamp: skin.sail === 'ghost' ? '#7dffc8' : undefined,
+      emblem: em, ghost: skin.sail === 'ghost', lamp: skin.sail === 'ghost' ? '#7dffc8' : undefined,
     };
   }
 
@@ -63,6 +69,7 @@
     heart: ['XX.XX', 'XXXXX', '.XXX.', '..X..'],
     anchor: ['..X..', '.XXX.', '..X..', 'X.X.X', '.XXX.'],
     eye: ['.XXX.', 'XX.XX', '.XXX.'],
+    sabres: ['X...X', '.X.X.', '..X..', '.X.X.', 'X...X'],
   };
 
   // Cloth weights for the animated sail/flag shader (see Scene.clothMaterial): per vertex
@@ -78,314 +85,558 @@
   function flagWeight(poleX, amp) {
     return (x, y, z, cx) => [0, amp * Math.max(0, Math.abs(poleX - cx)), 0];
   }
+  const mod = (a, n) => ((a % n) + n) % n;
 
   /**
-   * opts: { tier 0..7, style key or {..palette}, skin, seed } ->
-   * { vox (hull, masts, yards, deck), glow (lanterns, lit stern windows), cloth: [{vox, fn}] (sails,
-   *   flags), rig: [[a, b], ...] rope segments, waterline, length, height, halfW, deckY, mastTops }
-   * All in voxels (scaled by Scene.S); the bow points to +x.
+   * opts: { tier 0..7, style key or {..palette}, skin, seed, wreck } ->
+   * { vox (hull, masts, yards, deck props), glow (lanterns, lit windows), cloth: [{vox, fn}] (sails,
+   *   flags), rig: [[a, b], ...] rope segments, waterline, length, height, halfW, deckY, mastTops,
+   *   scale (world units per voxel), cx / cz (hull centre), deck: { y, spots: [[x, z]], upper } }
+   * All in voxels; the bow points to +x, the hull centre line is the voxel row z = 0.
    */
   function ship(opts) {
-    const d = DIMS[Math.max(0, Math.min(7, opts.tier))];
+    const tier = Math.max(0, Math.min(7, opts.tier | 0));
+    const d = DIMS[tier];
     const P = typeof opts.style === 'object' ? opts.style : (STYLES[opts.style] || STYLES.navy);
     const rnd = VC.util.rng(opts.seed || 7);
+    const wreck = !!opts.wreck;
     const v = new Vox(), glow = new Vox(), cloth = [], rig = [];
-    const lamp = P.lamp || '#ffd36b';
+    const lampC = P.lamp || '#ffd36b';
     const { L, W, H } = d;
-    const hull = P.hull, trim = P.trim, bottom = shade(hull, 0.62), deck = P.deck || '#b8905a';
-    const halfW = [];
+    const hull = P.hull, trim = P.trim;
+    const bottom = P.bottom || shade(hull, 0.55);
+    const deckC = P.deck || '#c49a62';
+    const mastC = '#6b4423', yardC = '#4f321a', metal = '#2b2b2e';
+    const wl = Math.round(H * 0.4);
+    const tatter = wreck ? 0.45 : (P.tattered || 0);
+    const hullMat = P.steam ? 'metal' : 'plank';
+    const lit = (x, y, z, c) => {
+      if (wreck) { v.set(x, y, z, MT('glass', '#2a2a2a')); return; }
+      v.del(x, y, z); glow.set(x, y, z, MT('glass', c || lampC));
+    };
+    const W_ = (c) => MT('wood', c);
+
+    // --- hull: rows of planks, dark bottom, wales, trim at the top; deck on top
+    const portRows = [];
+    for (let r = 0; r < d.rows; r++) { const yp = H - 3 - r * 4; if (yp - 1 > wl) portRows.push(yp); }
+    const wales = new Set();
+    for (const yp of portRows) if (yp - 2 > wl) wales.add(yp - 2);
+    if (!portRows.length && H - 3 > wl) wales.add(H - 3);
+    const hullC = (x, y) => {
+      if (y < wl) return MT(hullMat, shade(bottom, 0.92 + 0.12 * hash(x >> 3, y, 1)));
+      if (y === wl) return W_(shade(bottom, 0.78));
+      if (y === H - 1) return W_(trim);
+      if (wales.has(y)) return W_(P.band && P.band !== trim ? shade(P.band, 0.9) : shade(hull, 0.6));
+      if (P.rivets && x % 4 === 0 && y % 3 === 1) return MT('metal', shade(hull, 1.3));
+      const off = (y * 5) & 7;
+      const seam = ((x + off) & 7) === 0;
+      const k = 0.9 + 0.16 * hash((x + off) >> 3, y, 3);
+      return MT(hullMat, shade(hull, seam ? k * 0.84 : k));
+    };
+    const deckPlank = (x, z) => {
+      const off = mod(z * 7 + 3, 11);
+      const seam = mod(x + off, 11) === 0;
+      return MT('plank', shade(deckC, (z & 1 ? 0.94 : 1.02) * (seam ? 0.8 : 0.97 + 0.06 * hash((x + off) / 11 | 0, z, 5))));
+    };
+    const outer = [], top = [];
     for (let x = 0; x < L; x++) {
       const t = x / (L - 1);
       let f = 1;
-      if (t > 0.7) f = Math.max(0.12, Math.sqrt((1 - t) / 0.3));
-      else if (t < 0.08) f = 0.82 + 0.18 * (t / 0.08);
-      halfW.push((W / 2) * f);
-      const y0 = t > 0.8 ? Math.round((t - 0.8) / 0.2 * H * 0.5) : 0;
-      for (let y = y0; y < H; y++) {
-        const hf = 0.45 + 0.55 * Math.pow(y / Math.max(1, H - 1), 0.7);
-        const hw = (W / 2) * f * hf;
-        const zr = Math.ceil(hw);
-        for (let z = -zr; z <= zr; z++) {
-          if (Math.abs(z) > hw + 0.35) continue;
-          let c = y < H * 0.4 ? bottom : hull;
-          if (y === H - 1) c = trim;
-          // planking seams along the hull
-          else if (y >= H * 0.4 && (x + y * 3) % 7 === 0) c = shade(hull, 0.9);
-          v.set(x, y, z, c);
-        }
+      if (t > 0.58) f = Math.max(0.05, Math.pow((1 - t) / 0.42, 0.6));
+      else if (t < 0.12) f = 0.8 + 0.2 * (t / 0.12);
+      const hm = (W / 2) * f;
+      const ky = t > 0.76 ? Math.round(Math.pow((t - 0.76) / 0.24, 1.6) * (H - 1) * 0.85) : (t < 0.03 ? 1 : 0);
+      const col = [];
+      for (let y = 0; y < H; y++) {
+        if (y < ky) { col.push(-1); continue; }
+        const fy = y / Math.max(1, H - 1);
+        const zr = Math.floor(hm * (0.32 + 0.68 * Math.sqrt(fy)) + 0.4);
+        col.push(zr);
+        for (let z = -zr; z <= zr; z++) v.set(x, y, z, hullC(x, y));
       }
-      // deck
-      const zr = Math.round(halfW[x]);
-      for (let z = -zr; z <= zr; z++) v.set(x, H, z, x % 2 ? deck : shade(deck, 0.9));
-      // rails
-      if (x > 0 && x < L - 1) {
-        v.set(x, H + 1, zr, trim); v.set(x, H + 1, -zr, trim);
-      }
+      outer.push(col);
+      top.push(col[H - 1]);
+      for (let z = -col[H - 1]; z <= col[H - 1]; z++) v.set(x, H, z, deckPlank(x, z));
     }
-    const railZ = x => Math.round(halfW[Math.max(0, Math.min(L - 1, x))]);
-    // gun ports
-    const rows = d.rows;
-    for (let r = 0; r < rows; r++) {
-      const y = H - 2 - r * 2;
-      if (y < 1) continue;
-      for (let x = Math.round(L * 0.22); x < L * 0.78; x += 3) {
-        const zr = Math.ceil(halfW[x] * (0.45 + 0.55 * Math.pow(y / Math.max(1, H - 1), 0.7)));
-        for (const sgn of [1, -1]) {
-          v.set(x, y, sgn * zr, '#1a1410');
-          v.set(x, y, sgn * (zr + 1), '#2a2a2a');
-        }
-      }
+    const topAt = x => top[Math.max(0, Math.min(L - 1, x))];
+    // keel strip under the hull
+    for (let x = 2; x < L - 3; x++) if (outer[x][0] >= 0) v.set(x, -1, 0, W_(shade(bottom, 0.7)));
+    // protruding wales
+    for (const y of wales) for (let x = 1; x < L - 1; x++) {
+      const zr = outer[x][y];
+      if (zr >= 2) for (const s of [1, -1]) v.set(x, y, s * (zr + 1), W_(shade(hull, 0.55)));
     }
-    // deck cannons on carriages, muzzles over the rail
-    {
-      const n = opts.tier === 0 ? 1 : Math.min(3, 1 + Math.floor(opts.tier / 2));
-      for (let k = 0; k < n; k++) {
-        const x = Math.round(L * (0.34 + k * 0.14)) + (opts.tier === 0 ? 1 : 0);
-        const zr = railZ(x);
-        if (zr < 2) continue;
-        for (const sgn of [1, -1]) {
-          v.set(x, H + 1, sgn * (zr - 1), '#5a3a1e');
-          v.set(x - 1, H + 1, sgn * (zr - 1), '#5a3a1e');
-          v.set(x, H + 2, sgn * (zr - 1), '#2a2a2a');
-          v.set(x, H + 2, sgn * zr, '#2a2a2a');
-        }
-      }
+    if (P.band) for (let x = 2; x < L - 2; x++) {
+      const y = H - 2, zr = outer[x][y];
+      if (zr >= 2 && !portRows.includes(y) && !portRows.includes(y + 1)) for (const s of [1, -1]) v.set(x, y, s * zr, W_(P.band));
     }
-    // cargo hatch grating and barrels
-    {
-      const hx = Math.round(L * (d.masts.length > 1 ? (d.masts[0] + d.masts[1]) / 2 : 0.3));
-      for (let x = hx - 1; x <= hx + 1; x++) for (let z = -1; z <= 1; z++) v.set(x, H, z, (x + z) % 2 ? '#3a2614' : '#6b4a2e');
-      if (opts.tier >= 1) {
-        const bx = Math.round(L * 0.82);
-        const zr = railZ(bx);
-        if (zr >= 2) { v.set(bx, H + 1, zr - 1, '#8a5a32'); v.set(bx, H + 2, zr - 1, '#9a6b3e'); v.set(bx - 1, H + 1, zr - 1, '#7a4a2a'); }
-      }
-    }
-    // anchors hanging at the bow
-    {
-      const ax = Math.max(1, L - 4);
-      const zr = Math.ceil(halfW[ax]) + 1;
-      for (const sgn of [1, -1]) {
-        v.set(ax, H - 1, sgn * zr, '#3a3a3a');
-        if (H > 2) { v.set(ax, H - 2, sgn * zr, '#3a3a3a'); v.set(ax - 1, H - 2, sgn * zr, '#3a3a3a'); v.set(ax + 1, H - 2, sgn * zr, '#3a3a3a'); }
-      }
-    }
-    // stern castle
-    const cx = Math.round(L * d.castle);
-    let sternTop = H + 1;
-    if (cx > 0) {
-      const top = H + (d.high ? 3 : 2);
-      sternTop = top + 1;
-      for (let x = 0; x < cx; x++) {
-        const zr = Math.round(halfW[x]);
-        for (let y = H + 1; y < top; y++) for (let z = -zr; z <= zr; z++) v.set(x, y, z, y === top - 1 ? trim : hull);
-        for (let z = -zr; z <= zr; z++) v.set(x, top, z, x % 2 ? deck : shade(deck, 0.9));
-        v.set(x, top + 1, zr, trim); v.set(x, top + 1, -zr, trim);
-      }
-      // stern gallery: lit windows between trim posts, a second row on tall castles
-      const zr0 = Math.round(halfW[0]);
-      for (let z = -zr0; z <= zr0; z++) {
-        for (let y = H + 1; y <= (d.high || H >= 6 ? H + 2 : H + 1); y++) {
-          if ((z + zr0) % 2 === 1) glow.set(-1, y, z, lamp); else v.set(-1, y, z, trim);
-        }
-        v.set(-1, H, z, shade(trim, 0.8));
-      }
-      v.set(0, top + 1, 0, trim);
-      // stern lanterns on posts
-      glow.set(0, top + 2, zr0, lamp);
-      glow.set(0, top + 2, -zr0, lamp);
-      v.set(0, top + 3, zr0, '#2a2a2a'); v.set(0, top + 3, -zr0, '#2a2a2a');
-      // ship's wheel at the front edge of the castle
-      const wx = cx;
-      v.set(wx, H + 1, 0, '#5a3a1e'); v.set(wx, H + 2, 0, '#5a3a1e');
-      v.set(wx, H + 4, 0, '#6b4423'); v.set(wx, H + 3, 1, '#6b4423'); v.set(wx, H + 3, -1, '#6b4423');
-      v.set(wx, H + 3, 0, '#f0c03a');
-    } else {
-      // small boats: one lantern on a post at the stern
-      v.set(1, H + 1, 0, '#5a3a1e');
-      glow.set(1, H + 2, 0, lamp);
-    }
-    // forecastle
-    if (opts.tier >= 3) {
-      for (let x = Math.round(L * 0.84); x < L - 1; x++) {
-        const zr = Math.round(halfW[x]);
-        for (let z = -zr; z <= zr; z++) v.set(x, H + 1, z, deck);
-      }
-    }
-    // bowsprit
-    const bx = L - 1, bLen = 3 + Math.round(opts.tier * 0.8);
-    const tipX = bx + bLen, tipY = H + 3 + Math.round(opts.tier / 2);
-    v.line(bx, H + 1, 0, tipX, tipY, 0, '#5a3a1e');
-    // figurehead
-    v.set(L, H - 1, 0, P.trim);
-    if (opts.tier >= 2) glow.set(tipX - 1, tipY - 1, 0, lamp);
 
-    // masts, yards, sails (sails and flags are cloth: separate voxel sets)
-    const mastTops = [];
-    const mastC = '#6b4423', yardC = '#4f321a';
-    const masts = [];
+    // --- stern castle, forecastle, bulwarks
+    const cx = Math.round(L * d.castle);
+    const ch = d.high ? 5 : 4;
+    const cTop = cx > 0 ? H + ch : H;
+    const fcX = d.fc ? Math.round(L * 0.84) : L;
+    const fcTop = H + 2;
+    const floorAt = x => (cx > 0 && x < cx ? cTop + 1 : x >= fcX ? fcTop + 1 : H + 1); // first free layer
+    const railTop = x => floorAt(x) + 1; // y of the cap rail
+    const bh = tier === 0 ? 1 : 2;
+    for (let x = 1; x < L - 1; x++) {
+      if (cx > 0 && x < cx) continue;
+      if (x >= fcX) continue;
+      const zr = top[x];
+      if (zr < 1) continue;
+      for (const s of [1, -1]) {
+        if (bh > 1) v.set(x, H + 1, s * zr, hullC(x, H + 1));
+        v.set(x, H + bh, s * zr, W_(trim));
+      }
+    }
+    if (cx > 0) {
+      for (let x = 0; x < cx; x++) {
+        const zr = top[x];
+        for (let y = H + 1; y < cTop; y++) for (let z = -zr; z <= zr; z++) v.set(x, y, z, y === cTop - 1 ? W_(trim) : hullC(x, y));
+        for (let z = -zr; z <= zr; z++) v.set(x, cTop, z, deckPlank(x, z));
+        for (const s of [1, -1]) {
+          if (x % 2 === 0) v.set(x, cTop + 1, s * zr, W_(shade(trim, 0.85)));
+          v.set(x, cTop + 2, s * zr, W_(trim));
+        }
+      }
+      // stern rail and the front rail of the quarterdeck (gaps for the stairs)
+      const zs = Math.max(1, top[cx] - 3);
+      for (let z = -top[0]; z <= top[0]; z++) { if (z % 2 === 0) v.set(0, cTop + 1, z, W_(shade(trim, 0.85))); v.set(0, cTop + 2, z, W_(trim)); }
+      for (let z = -top[cx - 1]; z <= top[cx - 1]; z++) {
+        if (Math.abs(z) >= zs - 1 && Math.abs(z) <= zs) continue;
+        if (z % 2 === 0) v.set(cx - 1, cTop + 1, z, W_(shade(trim, 0.85)));
+        v.set(cx - 1, cTop + 2, z, W_(trim));
+      }
+      // stairs up to the quarterdeck on both sides
+      for (const s of [1, -1]) for (let k = 0; k < ch - 1; k++) {
+        for (let y = H + 1; y <= cTop - 1 - k; y++) for (const z of [zs - 1, zs]) v.set(cx + k, y, s * z, W_(shade('#8a6238', k % 2 ? 0.9 : 1)));
+      }
+      // cabin door and windows in the front wall of the castle
+      for (let y = H + 1; y <= H + 3; y++) for (let z = -1; z <= 1; z++) v.set(cx - 1, y, z, W_(z === 0 ? '#3a2614' : '#4a3020'));
+      v.set(cx, H + 2, 1, MT('gold', '#e0b04a'));
+      for (const s of [1, -1]) { const z = s * Math.max(2, top[cx - 1] - 3); if (Math.abs(z) > 2) { lit(cx - 1, H + 2, z); lit(cx - 1, H + 2, z - s); } }
+      // side windows of the great cabin
+      for (let x = 2; x < cx - 3; x += 4) for (const s of [1, -1]) {
+        const zr = top[x];
+        for (let y = H + 1; y <= H + 2 + (d.high ? 1 : 0); y++) { lit(x, y, s * zr); lit(x + 1, y, s * zr); }
+        for (let y = H; y <= H + 3 + (d.high ? 1 : 0); y++) { v.set(x - 1, y, s * zr, W_(trim)); v.set(x + 2, y, s * zr, W_(trim)); }
+      }
+      // stern gallery: a carved transom with rows of lit windows, lanterns on the corners
+      const z0 = top[0];
+      for (let y = H - 2; y <= cTop + 1; y++) for (let z = -z0; z <= z0; z++) v.set(-1, y, z, W_(y === H - 2 || y === cTop + 1 || y === cTop - 1 ? trim : shade(hull, 0.8)));
+      const rows = ch >= 5 ? [H, H + 3] : [H + 1];
+      for (const wy of rows) for (let z = -z0 + 1; z + 1 <= z0 - 1; z += 3) {
+        lit(-1, wy, z); lit(-1, wy, z + 1); lit(-1, wy + 1, z); lit(-1, wy + 1, z + 1);
+        v.set(-2, wy - 1, z, W_(trim)); v.set(-2, wy - 1, z + 1, W_(trim));
+      }
+      for (let z = -z0 + 1; z <= z0 - 1; z++) v.set(-2, cTop + 1, z, W_(z % 3 ? trim : shade(trim, 0.8)));
+      if (P.figure || P.band) for (let z = -2; z <= 2; z++) v.set(-2, cTop + 2, z, MT('gold', P.figure || P.band));
+      for (const s of [1, -1]) {
+        const lz = s * Math.max(1, z0 - 1);
+        v.set(-2, cTop + 2, lz, MT('metal', metal));
+        lit(-2, cTop + 3, lz); lit(-2, cTop + 4, lz);
+        v.set(-2, cTop + 5, lz, MT('metal', metal));
+      }
+      if (tier >= 4) { v.set(-2, cTop + 3, 0, MT('metal', metal)); lit(-2, cTop + 4, 0); lit(-2, cTop + 5, 0); lit(-2, cTop + 6, 0); v.set(-2, cTop + 7, 0, MT('metal', metal)); }
+      // ship's wheel on the quarterdeck
+      const wx = cx - 3, wy = cTop + 4;
+      v.set(wx, cTop + 1, 0, W_('#4a3020')); v.set(wx, cTop + 2, 0, W_('#4a3020'));
+      for (let a = 0; a < 16; a++) {
+        const an = a / 16 * Math.PI * 2;
+        v.set(wx - 1, Math.round(wy + Math.sin(an) * 2), Math.round(Math.cos(an) * 2), W_('#6b4423'));
+        if (a % 2 === 0) v.set(wx - 1, Math.round(wy + Math.sin(an) * 3), Math.round(Math.cos(an) * 3), W_('#8a6238'));
+      }
+      v.set(wx - 1, wy, 0, MT('gold', '#f0c03a'));
+    } else {
+      // small boats: a lantern on a post at the stern
+      v.set(0, H + 1, 0, W_('#5a3a1e')); v.set(0, H + 2, 0, W_('#5a3a1e'));
+      lit(0, H + 3, 0); v.set(0, H + 4, 0, MT('metal', metal));
+    }
+    if (d.fc) {
+      for (let x = fcX; x < L; x++) {
+        const zr = top[x];
+        if (zr < 0) continue;
+        for (let y = H + 1; y < fcTop; y++) for (let z = -zr; z <= zr; z++) v.set(x, y, z, hullC(x, y));
+        for (let z = -zr; z <= zr; z++) v.set(x, fcTop, z, deckPlank(x, z));
+        if (zr >= 1) for (const s of [1, -1]) { if (x % 2 === 0) v.set(x, fcTop + 1, s * zr, W_(shade(trim, 0.85))); v.set(x, fcTop + 2, s * zr, W_(trim)); }
+      }
+      const zr = top[fcX];
+      for (let z = -zr; z <= zr; z++) { if (z % 2 === 0) v.set(fcX, fcTop + 1, z, W_(shade(trim, 0.85))); v.set(fcX, fcTop + 2, z, W_(trim)); }
+      v.set(fcX, H + 1, 0, W_('#3a2614'));
+      for (const s of [1, -1]) if (zr > 3) lit(fcX, H + 1, s * (zr - 2));
+    }
+
+    // --- gun ports with cannon muzzles
+    const ports = [];
+    for (const yp of portRows) {
+      for (let x = Math.round(L * 0.2); x + 2 < L * 0.76; x += 6) {
+        for (const s of [1, -1]) {
+          const zr = outer[x + 1][yp];
+          if (zr < 2) continue;
+          for (let dx = 0; dx <= 2; dx++) for (let dy = -1; dy <= 0; dy++) v.set(x + dx, yp + dy, s * zr, MT('plain', '#16100c'));
+          for (let dx = -1; dx <= 3; dx++) { v.set(x + dx, yp + 1, s * zr, W_(P.band || shade(trim, 0.9))); v.set(x + dx, yp - 2, s * zr, W_(shade(hull, 0.62))); }
+          if (!wreck || rnd() < 0.5) for (let k = 1; k <= 2; k++) v.set(x + 1, yp - 1, s * (zr + k), MT('metal', k === 2 ? '#1a1a1c' : metal));
+          ports.push([x + 1, yp, s]);
+        }
+      }
+    }
+
+    // --- bow: stem, figurehead, bowsprit, anchors
+    const kyEnd = (() => { for (let y = 0; y < H; y++) if (outer[L - 1][y] >= 0) return y; return H - 1; })();
+    const stemTop = (d.fc ? fcTop : H) + 3;
+    for (let y = kyEnd; y <= stemTop; y++) {
+      const k = (y - kyEnd) / Math.max(1, stemTop - kyEnd);
+      const sx = L - 1 + Math.round(k * k * 3);
+      v.set(sx, y, 0, W_(y > H ? trim : shade(hull, 0.7)));
+      if (sx > L - 1) v.set(sx - 1, y, 0, W_(shade(hull, 0.7)));
+    }
+    const fig = P.figure || (P.band ? P.band : '#d8b060');
+    for (let y = Math.max(kyEnd, H - 3); y <= H; y++) v.set(L, y, 0, MT('gold', fig));
+    v.set(L + 1, H, 0, MT('gold', fig)); v.set(L + 1, H + 1, 0, MT('gold', shade(fig, 1.1)));
+    v.set(L + 1, Math.max(kyEnd, H - 2), 0, MT('gold', shade(fig, 0.85)));
+    const bLen = 6 + Math.round(tier * 2.2);
+    const bx0 = L - 4, by0 = (d.fc ? fcTop : H) + 1;
+    const tipX = L - 1 + bLen, tipY = by0 + Math.round(bLen * 0.42);
+    v.line(bx0, by0, 0, tipX, tipY, 0, W_('#5a3a1e'));
+    if (tier >= 2) v.line(bx0, by0 + 1, 0, Math.round(bx0 + (tipX - bx0) * 0.6), Math.round(by0 + 1 + (tipY - by0) * 0.6), 0, W_('#5a3a1e'));
+    if (tier >= 2 && !wreck) lit(tipX - 2, tipY - 1, 0);
+    if (tier >= 1) {
+      const ax = L - Math.round(L * 0.14);
+      for (const s of [1, -1]) {
+        const zr = outer[ax][H - 1] + 1, z = s * zr;
+        for (let y = H - 5; y <= H - 1; y++) v.set(ax, y, z, MT('metal', '#3a3a3e'));
+        v.set(ax - 1, H - 1, z, MT('metal', '#3a3a3e')); v.set(ax + 1, H - 1, z, MT('metal', '#3a3a3e'));
+        v.set(ax - 1, H - 5, z, MT('metal', '#3a3a3e')); v.set(ax + 1, H - 5, z, MT('metal', '#3a3a3e'));
+        v.set(ax - 2, H - 4, z, MT('metal', '#3a3a3e')); v.set(ax + 2, H - 4, z, MT('metal', '#3a3a3e'));
+        v.set(ax, H, z, W_('#5a3a1e')); v.set(ax, H, s * (zr + 1), W_('#5a3a1e'));
+      }
+    }
+
+    // --- masts, tops, yards and sails; funnels on steam ships
+    const masts = [], mastTops = [];
+    const n = d.masts.length;
     d.masts.forEach((m, mi) => {
       const mx = Math.round(L * m);
-      const mainBoost = d.masts.length > 1 && mi === Math.floor(d.masts.length / 2) ? 2 : 0;
-      const mh = d.mh + mainBoost - (mi === d.masts.length - 1 && d.masts.length > 2 ? 2 : 0);
-      const top = H + mh;
+      const main = n === 1 || mi === Math.floor(n / 2);
+      const base = floorAt(mx);
+      let h = d.mh + (main && n > 1 ? 4 : 0) - (mi === 0 && n > 1 ? 6 : 0) - (mi === n - 1 && n > 2 ? 2 : 0);
       if (P.steam) {
-        // Steam ships: funnels instead of masts.
-        const fh = 5 + Math.round(opts.tier * 0.6);
-        for (let y = H + 1; y <= H + fh; y++)
-          for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++)
-            if (Math.abs(dx) + Math.abs(dz) < 2) v.set(mx + dx, y, dz, y > H + fh - 2 ? '#1b1b1b' : (P.rivets && y % 2 ? shade(hull, 1.2) : hull));
-        mastTops.push([mx, H + fh + 1, 0]);
+        const fh = 12 + tier * 2;
+        v.cyl(mx, base, 0, 2.4, base + fh, (x, y) => MT('metal', y > base + fh - 3 ? '#1b1b1b' : (y - base) % 6 === 5 ? shade(hull, 1.3) : shade(P.trim, 1.6)));
+        mastTops.push([mx, base + fh + 1, 0]);
+        masts.push({ mx, top: base + fh, h: fh, base, steam: true });
         return;
       }
-      for (let y = H + 1; y <= top; y++) v.set(mx, y, 0, y > top - 2 ? shade(mastC, 0.85) : mastC);
-      mastTops.push([mx, top, 0]);
-      masts.push({ mx, top, mh, main: !!mainBoost });
+      if (wreck) h = Math.round(h * (main ? 0.62 : 0.45));
+      const topY = H + h;
+      const thick = tier >= 2;
+      const nestY = tier >= 3 ? topY - Math.round(h * 0.33) : 0;
+      for (let y = base; y <= topY; y++) {
+        const lower = thick && y < (nestY || topY - 8);
+        const band = (y - base) % 8 === 7;
+        const c = W_(band ? shade(mastC, 0.7) : y > topY - 2 ? shade(mastC, 0.85) : mastC);
+        v.set(mx, y, 0, c);
+        if (lower) { v.set(mx + 1, y, 0, c); v.set(mx - 1, y, 0, c); v.set(mx, y, 1, c); v.set(mx, y, -1, c); }
+      }
+      if (wreck) { v.set(mx + 1, topY + 1, 0, W_('#8a6238')); v.set(mx, topY + 2, 1, W_('#8a6238')); }
+      // coiled ropes around the mast foot
+      if (tier >= 1) for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+        const r = Math.hypot(dx, dz);
+        if (r > 1.6 && r < 2.6 && v.has(mx + dx, base - 1, dz) && !v.has(mx + dx, base, dz)) v.set(mx + dx, base, dz, MT('cloth', (dx + dz) & 1 ? '#c8b48a' : '#b09a70'));
+      }
+      // fighting top / crow's nest
+      if (nestY && !wreck) {
+        const nr = main || d.nest ? 3 : 2;
+        for (let dx = -nr; dx <= nr; dx++) for (let dz = -nr; dz <= nr; dz++) {
+          const r = Math.hypot(dx, dz);
+          if (r > nr + 0.4) continue;
+          if (dx || dz) v.set(mx + dx, nestY, dz, MT('plank', '#7a5530'));
+          if (r > nr - 0.8 && (main && d.nest)) { v.set(mx + dx, nestY + 1, dz, MT('plank', '#8a6238')); v.set(mx + dx, nestY + 2, dz, W_('#5a3a1e')); }
+        }
+        if (main && d.nest) lit(mx + 1, nestY + 1, 2, lampC);
+      }
+      masts.push({ mx, top: topY, h, base, main, nestY, thick });
+      mastTops.push([mx, topY, 0]);
       if (!P.sail) return;
-      const sw = Math.round(W / 2) + 1;
-      const sails = opts.tier >= 3 ? [[H + 3, H + Math.round(mh * 0.55)], [H + Math.round(mh * 0.55) + 2, top - 2]] :
-        [[H + 3, top - 2]];
-      sails.forEach(([y0, y1], si) => {
-        const w = si === 0 ? sw : sw - 1;
+      // square sails, stacked between the yards
+      const nSails = wreck ? 1 : tier === 0 ? 1 : tier <= 2 ? 2 : (mi === 0 && n > 2 ? 2 : 3);
+      const y0 = base + 5;
+      const secs = [];
+      if (nestY && nSails > 1) {
+        secs.push([y0, nestY - 2]);
+        const a = nestY + 3, b = topY - 3, k = nSails - 1, len = (b - a + 1 - (k - 1)) / k;
+        for (let i = 0; i < k; i++) secs.push([Math.round(a + i * (len + 1)), Math.round(a + i * (len + 1) + len - 1)]);
+      } else {
+        const a = y0, b = wreck ? topY - 1 : topY - 3, len = (b - a + 1 - (nSails - 1)) / nSails;
+        for (let i = 0; i < nSails; i++) secs.push([Math.round(a + i * (len + 1)), Math.round(a + i * (len + 1) + len - 1)]);
+      }
+      const w0 = Math.round(W / 2) + 2 + (main ? 1 : 0) - (mi === 0 && n > 1 ? 1 : 0);
+      const sx0 = mx + (thick ? 2 : 1);
+      secs.forEach(([sy0, sy1], si) => {
+        if (sy1 - sy0 < 2) return;
+        const w = Math.max(3, w0 - si * 2);
+        const B = wreck ? 0 : Math.min(2, 1 + Math.round(w / 8));
+        for (let z = -w - 2; z <= w + 2; z++) {
+          const c = W_(Math.abs(z) > w ? shade(yardC, 1.2) : yardC);
+          v.set(sx0, sy1 + 1, z, c);
+          if (si === 0) v.set(sx0, sy0 - 1, z, c);
+        }
         const sv = new Vox();
-        for (let z = -w - 1; z <= w + 1; z++) { v.set(mx + 1, y1 + 1, z, yardC); v.set(mx + 1, y0 - 1, z, yardC); }
-        for (let y = y0; y <= y1; y++) {
-          for (let z = -w; z <= w; z++) {
-            if (P.tattered && rnd() < P.tattered && y < y1 - 1) continue;
-            let c = P.sail;
-            if (P.stripe && (y - y0) % 2 === 0) c = P.stripe;
-            if (P.patch && rnd() < 0.12) c = P.patch;
-            const inner = Math.abs(z) < w && y > y0 && y < y1;
-            sv.set(mx + (inner ? 2 : 1), y, z, c);
-            if (inner && Math.abs(z) < w - 1) sv.set(mx + 1, y, z, shade(c, 0.94));
-            // reef points: a darker row near the top of big sails
-            if (!P.stripe && y === y1 - 1 && (z + 10) % 2 === 0 && w > 2) sv.set(mx + (inner ? 2 : 1), y, z, shade(c, 0.86));
+        const em = si === 0 && main && P.emblem && EMBLEMS[P.emblem] && !wreck ? EMBLEMS[P.emblem] : null;
+        const es = em && w >= 7 && sy1 - sy0 >= 10 ? 2 : 1;
+        const eh = em ? em.length * es : 0, ew = em ? em[0].length * es : 0;
+        // the emblem must stand out from the sail: light sails get it in the flag colour
+        const lum = c => { const q = VC.Voxel.toInt(c); return ((q >> 16) & 255) * 0.3 + ((q >> 8) & 255) * 0.59 + (q & 255) * 0.11; };
+        const emC = Math.abs(lum(P.fg || '#fff') - lum(P.sail)) > 70 ? (P.fg || '#fff') : (P.flag && Math.abs(lum(P.flag) - lum(P.sail)) > 70 ? P.flag : '#1a1a1a');
+        const ey0 = Math.round((sy0 + sy1) / 2 + eh / 2);
+        for (let y = sy0; y <= sy1; y++) for (let z = -w; z <= w; z++) {
+          if (tatter && y < sy1 - 1 && rnd() < tatter * (wreck ? 1.3 - (y - sy0) / (sy1 - sy0 + 1) : 1)) continue;
+          const ty = (y - sy0) / Math.max(1, sy1 - sy0), tz = z / w;
+          const belly = Math.round(B * Math.max(0, 1 - tz * tz) * (y === sy1 ? 0.45 : y === sy0 ? 0.8 : 1));
+          let c = P.sail;
+          if (P.stripe && mod(Math.floor((z + w) / 3), 2) === 0) c = P.stripe;
+          if (P.patch && hash(Math.floor((z + 20) / 3), Math.floor(y / 3), mi * 7 + si) < 0.1) c = P.patch;
+          let k = 0.97 + 0.05 * hash(z, y, si + mi * 5);
+          if (Math.abs(z) === w || y === sy0 || y === sy1) k *= 0.86;
+          else if (mod(z + w, 4) === 0) k *= 0.93;
+          if (y === sy1 - 2 && w > 4) k *= mod(z, 2) ? 0.92 : 0.82;
+          if (em) {
+            const ri = Math.floor((ey0 - y) / es), ci = Math.floor((z + Math.floor(ew / 2)) / es);
+            if (ey0 - y >= 0 && ri < em.length && z + Math.floor(ew / 2) >= 0 && ci < em[0].length && em[ri][ci] === 'X') { c = emC; k = 1; }
+          }
+          sv.set(sx0 + 1 + belly, y, z, MT('cloth', shade(c, k)));
+        }
+        cloth.push({ vox: sv, fn: sailWeight(sy0, sy1, w, 0.035 + 0.006 * w) });
+        masts[masts.length - 1].yards = (masts[masts.length - 1].yards || []).concat([[sy1 + 1, w + 2]]);
+      });
+    });
+
+    // spanker (gaff sail) behind the rearmost mast, jibs between the bowsprit and the fore mast
+    if (P.sail && tier >= 2 && !wreck && masts.length) {
+      const m = masts[0];
+      const sl = Math.round(L * 0.2);
+      const xa = m.mx - (m.thick ? 2 : 1), xb = Math.max(1, m.mx - sl);
+      const yb = Math.max(floorAt(xb), floorAt(xa)) + 4;
+      const ytA = m.top - Math.round(m.h * 0.42);
+      const sv = new Vox();
+      for (let x = xb; x <= xa; x++) {
+        const tx = (xa - x) / Math.max(1, xa - xb);
+        const yt = Math.round(ytA + tx * sl * 0.35);
+        v.set(x, yb - 1, 0, W_(yardC));
+        v.set(x, yt + 1, 0, W_(yardC));
+        for (let y = yb; y <= yt; y++) {
+          if (tatter && rnd() < tatter) continue;
+          const ty = (y - yb) / Math.max(1, yt - yb);
+          const bz = Math.round(1.6 * Math.sin(Math.PI * tx) * Math.sin(Math.PI * ty));
+          let k = 0.97 + 0.05 * hash(x, y, 9);
+          if (x === xb || y === yb || y === yt) k *= 0.86; else if (mod(x, 4) === 0) k *= 0.93;
+          const c = P.stripe && mod(Math.floor(x / 3), 2) === 0 ? P.stripe : P.sail;
+          sv.set(x, y, bz, MT('cloth', shade(c, k)));
+        }
+      }
+      cloth.push({ vox: sv, fn: (x, y, z, vx, vy) => [0, 0, 0.06 * Math.sin(Math.PI * Math.max(0, Math.min(1, (xa - vx) / Math.max(1, xa - xb))))] });
+    }
+    if (P.sail && tier >= 1 && !wreck && masts.length) {
+      const fm = masts[masts.length - 1];
+      const jibs = tier >= 3 ? [[1, 0.88], [0.62, 0.64]] : [[1, 0.8]];
+      jibs.forEach(([bk, mk], ji) => {
+        const ex = Math.round(bx0 + (tipX - bx0) * bk), ey = Math.round(by0 + (tipY - by0) * bk) - 1;
+        const my = Math.round(fm.base + (fm.top - fm.base) * mk);
+        const x0 = fm.mx + (fm.thick ? 8 : 6) + ji * 2;
+        const jv = new Vox();
+        for (let x = x0; x <= ex; x++) {
+          const t = (x - x0) / Math.max(1, ex - x0);
+          const yTop = Math.round(my + (ey - my) * t);
+          const yBot = Math.round(fm.base + 4 + (ey - fm.base - 4) * Math.pow(t, 0.8));
+          for (let y = yBot; y <= yTop; y++) {
+            if (tatter && rnd() < tatter) continue;
+            let k = 0.95 + 0.05 * hash(x, y, ji + 3);
+            if (y === yTop || y === yBot) k *= 0.86;
+            jv.set(x, y, 0, MT('cloth', shade(P.sail, k)));
           }
         }
-        // Emblem on the biggest sail of the main mast.
-        if (si === 0 && P.emblem && mainBoost && EMBLEMS[P.emblem]) {
-          const em = EMBLEMS[P.emblem];
-          const ey = Math.round((y0 + y1) / 2) + Math.floor(em.length / 2);
-          em.forEach((row, ri) => {
-            for (let k = 0; k < row.length; k++) if (row[k] === 'X') sv.set(mx + 3, ey - ri, k - Math.floor(row.length / 2), P.fg || '#fff');
-          });
-        }
-        cloth.push({ vox: sv, fn: sailWeight(y0, y1, w, 0.05 + 0.012 * w) });
-      });
-      if (d.nest && mainBoost) {
-        const ny = top - 3;
-        for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (dx || dz) v.set(mx + dx, ny, dz, '#5a3a1e');
-        v.set(mx + 1, ny + 1, 1, '#5a3a1e'); v.set(mx - 1, ny + 1, -1, '#5a3a1e');
-      }
-    });
-    // single mast boats still get an emblem
-    if (d.masts.length === 1 && P.emblem && P.sail && EMBLEMS[P.emblem] && opts.tier >= 1 && cloth.length) {
-      const mx = Math.round(L * d.masts[0]);
-      const em = EMBLEMS[P.emblem];
-      const y0 = H + 3, y1 = H + d.mh - 2;
-      const ey = Math.round((y0 + y1) / 2) + Math.floor(em.length / 2);
-      em.forEach((row, ri) => {
-        for (let k = 0; k < row.length; k++) if (row[k] === 'X') cloth[0].vox.set(mx + 3, ey - ri, k - Math.floor(row.length / 2), P.fg || '#fff');
+        cloth.push({ vox: jv, fn: (x, y, z, vx) => [0, 0, 0.09 * Math.sin(Math.PI * Math.max(0, Math.min(1, (vx - x0) / Math.max(1, ex - x0))))] });
+        rig.push([[x0 + 0.5, my + 0.5, 0.5], [ex + 0.5, ey + 1, 0.5]]);
       });
     }
-    // jib sail from the bowsprit to the fore mast
-    if (P.sail && opts.tier >= 2) {
-      const fm = Math.round(L * d.masts[d.masts.length - 1]);
-      const topY = H + d.mh - 4;
-      const jv = new Vox();
-      for (let x = fm + 2; x < tipX; x++) {
-        const t = (x - fm) / (tipX - fm);
-        const yTop = Math.round(topY + (tipY - topY) * t);
-        const yBot = Math.round(H + 2 + (tipY - H - 2) * t);
-        for (let y = yBot; y <= yTop; y++) {
-          if (P.tattered && rnd() < P.tattered) continue;
-          jv.set(x, y, 0, shade(P.sail, 0.97));
-        }
-      }
-      const x0 = fm + 2, x1 = tipX;
-      cloth.push({ vox: jv, fn: (x, y, z, vx) => [0, 0, 0.1 * Math.sin(Math.PI * Math.max(0, Math.min(1, (vx - x0) / (x1 - x0))))] });
-    }
-    // flag on the tallest mast, pennants on the others
-    if (P.flag && mastTops.length) {
+
+    // --- flags: the main flag on the tallest mast, pennants, the stern ensign
+    if (P.flag && mastTops.length && !wreck) {
       let best = mastTops[0];
       for (const m of mastTops) if (m[1] > best[1]) best = m;
       const [fx, fy] = best;
+      for (let y = fy + 1; y <= fy + 4; y++) v.set(fx, y, 0, W_(mastC));
+      v.set(fx, fy + 5, 0, MT('gold', '#f0c03a'));
       const fv = new Vox();
-      for (let x = fx - 5; x <= fx - 1; x++) for (let y = fy - 2; y <= fy; y++) fv.set(x, y, 0, P.flag);
-      fv.set(fx - 3, fy - 1, 0, P.fg || '#fff');
-      fv.set(fx - 2, fy, 0, P.fg || '#fff');
-      fv.set(fx - 4, fy, 0, P.fg || '#fff');
-      cloth.push({ vox: fv, fn: flagWeight(fx, 0.028) });
-      v.set(fx, fy + 1, 0, '#f0c03a');
-      if (!P.steam) {
-        for (const m of mastTops) {
-          if (m === best) continue;
-          const pv = new Vox();
-          const pc = P.fg && P.fg !== '#fff' ? P.fg : trim;
-          pv.set(m[0] - 1, m[1], 0, pc); pv.set(m[0] - 2, m[1], 0, pc); pv.set(m[0] - 3, m[1], 0, P.flag);
-          cloth.push({ vox: pv, fn: flagWeight(m[0], 0.03) });
+      const fw = 10, fh = 6;
+      const em = EMBLEMS[P.emblem] || (P.fg ? EMBLEMS.skull : null);
+      const ex0 = fx - 1 - Math.floor((fw - (em ? em[0].length : 0)) / 2), ey0 = fy + 4 - Math.floor((fh - (em ? em.length : 0)) / 2);
+      for (let i = 1; i <= fw; i++) for (let j = 0; j < fh; j++) {
+        const x = fx - i, y = fy + 4 - j;
+        let c = P.flag;
+        if (em) { const ci = ex0 - x, ri = ey0 - y; if (ci >= 0 && ri >= 0 && ri < em.length && ci < em[0].length && em[ri][em[0].length - 1 - ci] === 'X') c = P.fg || '#fff'; }
+        if (i === fw && j % 2) continue;
+        fv.set(x, y, 0, MT('cloth', c));
+      }
+      cloth.push({ vox: fv, fn: flagWeight(fx, 0.013) });
+      if (!P.steam) for (const m of mastTops) {
+        if (m === best) continue;
+        const pv = new Vox();
+        const pc = P.fg && P.fg !== '#fff' ? P.fg : trim;
+        for (let i = 1; i <= 10; i++) {
+          const hh = Math.max(1, Math.round(3 - i * 0.22));
+          for (let j = 0; j < hh; j++) pv.set(m[0] - i, m[1] + 1 - j, 0, MT('cloth', i > 7 ? P.flag : pc));
         }
+        v.set(m[0], m[1] + 1, 0, W_(mastC));
+        cloth.push({ vox: pv, fn: flagWeight(m[0], 0.015) });
       }
       // stern ensign on a staff
-      if (cx > 0) {
-        v.line(-1, sternTop, 0, -2, sternTop + 4, 0, '#5a3a1e');
-        const ev = new Vox();
-        for (let x = -5; x <= -3; x++) for (let y = sternTop + 2; y <= sternTop + 3; y++) ev.set(x, y, 0, x === -4 && y === sternTop + 3 ? (P.fg || '#fff') : P.flag);
-        cloth.push({ vox: ev, fn: flagWeight(-2, 0.03) });
-      }
+      const sy = cx > 0 ? cTop + 2 : H + 2;
+      v.line(-2, sy, 0, -4, sy + 9, 0, W_('#5a3a1e'));
+      const ev = new Vox();
+      for (let i = 1; i <= 8; i++) for (let j = 0; j < 5; j++) ev.set(-4 - i, sy + 9 - j, 0, MT('cloth', (i === 4 || i === 5) && (j === 1 || j === 2) ? (P.fg || '#fff') : P.flag));
+      cloth.push({ vox: ev, fn: flagWeight(-4, 0.014) });
     }
-    if (P.gears) {
-      for (const sgn of [1, -1]) {
-        const gx = Math.round(L * 0.5), gy = Math.round(H * 0.6), gz = sgn * (Math.ceil(W / 2) + 1);
-        for (let a = 0; a < 16; a++) {
-          const ang = a / 16 * Math.PI * 2;
-          v.set(gx + Math.round(Math.cos(ang) * 3), gy + Math.round(Math.sin(ang) * 2), gz, a % 2 ? '#e0b04a' : '#8a6420');
+
+    // --- steam machinery
+    if (P.steam) {
+      const mx = Math.round(L * 0.5), zr = top[mx];
+      const bh2 = 6 + Math.round(tier / 2);
+      for (let x = mx - 5; x <= mx + 5; x++) for (let y = H + 1; y <= H + bh2; y++) for (let z = -(zr - 3); z <= zr - 3; z++) {
+        if (masts.some(m => Math.abs(m.mx - x) <= 2)) continue;
+        v.set(x, y, z, y === H + bh2 ? MT('metal', shade(P.trim, 1.2)) : MT('metal', shade(hull, 1.12)));
+      }
+      for (let x = mx - 4; x <= mx + 4; x += 2) for (const s of [1, -1]) if (!masts.some(m => Math.abs(m.mx - x) <= 2)) lit(x, H + bh2 - 2, s * (zr - 3));
+      if (P.gears) for (const s of [1, -1]) {
+        const R = Math.max(4, Math.round(H * 0.7)), gy = wl + 2, gx = Math.round(L * 0.5);
+        for (let dx = -R; dx <= R; dx++) for (let dy = -R; dy <= R; dy++) {
+          const r = Math.hypot(dx, dy);
+          if (r > R + 0.4 || gy + dy < wl - 1) continue;
+          const zz = s * (outer[gx][Math.min(H - 1, Math.max(0, gy + dy))] + 1);
+          if (r > R - 1.2) { v.set(gx + dx, gy + dy, zz, MT('metal', '#8a6420')); v.set(gx + dx, gy + dy, zz + s, MT('metal', '#e0b04a')); }
+          else if (dx === 0 || dy === 0 || Math.abs(dx) === Math.abs(dy)) v.set(gx + dx, gy + dy, zz + s, MT('wood', '#5a3a1e'));
         }
-        v.set(gx, gy, gz, '#e0b04a');
+        v.set(gx, gy, s * (outer[gx][gy] + 3), MT('gold', '#f0c03a'));
+      }
+      if (P.flag) {
+        // signal mast with the flag above the bridge house
+        const sx = Math.round(L * 0.5);
+        for (let y = H + bh2 + 1; y <= H + bh2 + 14; y++) v.set(sx, y, 0, MT('metal', '#3a3a3e'));
+        for (let z = -4; z <= 4; z++) v.set(sx, H + bh2 + 11, z, MT('metal', '#3a3a3e'));
+        const fv = new Vox();
+        for (let i = 1; i <= 9; i++) for (let j = 0; j < 5; j++) fv.set(sx - i, H + bh2 + 14 - j, 0, MT('cloth', j === 2 && i > 2 && i < 8 ? (P.fg || '#fff') : P.flag));
+        cloth.push({ vox: fv, fn: flagWeight(sx, 0.014) });
       }
     }
 
-    // Rigging (voxel-space points; voxel centres are at +0.5).
-    const seg = (a, b) => rig.push([a, b]);
-    const railPt = (x, sgn) => { const zr = railZ(x); return [x + 0.5, H + 2, sgn > 0 ? zr + 0.5 : -zr + 0.5]; };
-    masts.forEach((m, mi) => {
-      const yS = m.top - (m.main && d.nest ? 3 : 2);
-      // shrouds with ratlines (rope ladders) on both sides
-      for (const sgn of [1, -1]) {
-        const feet = [m.mx - 2, m.mx - 1, m.mx].map(x => railPt(Math.max(1, x), sgn));
-        const head = [m.mx + 0.5, yS, 0.5];
-        feet.forEach(f => seg(head, f));
-        const y0 = H + 3, y1 = yS - 1;
-        for (let y = y0; y < y1; y += 1.5) {
-          const pts = feet.map(f => {
-            const t = (y - f[1]) / (head[1] - f[1]);
-            return [f[0] + (head[0] - f[0]) * t, y, f[2] + (head[2] - f[2]) * t];
-          });
-          seg(pts[0], pts[1]); seg(pts[1], pts[2]);
+    // --- deck furniture: hatch gratings, capstan, deck guns, barrels and crates
+    const busy = (x0, x1, z0, z1, y0, y1) => {
+      for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) if (v.has(x, y, z)) return true;
+      return false;
+    };
+    const mainX0 = cx > 0 ? cx + ch : 3, mainX1 = fcX - 3;
+    if (tier >= 1 && !P.steam) {
+      const hx = n > 1 ? Math.round((masts[n - 1].mx + masts[n - 2].mx) / 2) : Math.round(L * 0.35);
+      const hw = Math.min(3, top[hx] - 3);
+      if (hw >= 1 && !busy(hx - 3, hx + 3, -hw - 1, hw + 1, H + 1, H + 1)) {
+        for (let x = hx - 3; x <= hx + 3; x++) for (let z = -hw - 1; z <= hw + 1; z++) {
+          const edge = x === hx - 3 || x === hx + 3 || Math.abs(z) === hw + 1;
+          v.set(x, H + 1, z, edge ? W_('#5a3a1e') : W_(mod(x + z, 2) ? '#2a1a0e' : '#8a6238'));
         }
       }
-      // stays: forward to the next mast, the last one to the bowsprit tip
-      const topPt = [m.mx + 0.5, m.top + 1, 0.5];
-      if (mi < masts.length - 1) seg(topPt, [masts[mi + 1].mx + 0.5, H + Math.round(masts[mi + 1].mh * 0.45), 0.5]);
-      else seg(topPt, [tipX + 0.5, tipY + 0.5, 0.5]);
-      // backstays down to the rails behind the mast
-      if (mi === 0) seg(topPt, [Math.max(0.5, m.mx - 6.5), sternTop + 1, 0.5]);
-      // braces from the yard ends to the rail
-      if (P.sail) for (const sgn of [1, -1]) {
-        const yh = Math.round(W / 2) + (opts.tier >= 3 ? 1 : 2);
-        seg([m.mx + 1.5, m.top - 1, sgn > 0 ? yh + 0.5 : -yh + 0.5], railPt(Math.max(1, m.mx - 3), sgn));
+      // capstan
+      const cpx = cx > 0 ? cx + ch + 3 : Math.round(L * 0.2);
+      if (cpx < mainX1 && !busy(cpx - 2, cpx + 2, -2, 2, H + 1, H + 3)) {
+        v.cyl(cpx, H + 1, 0, 1.3, H + 3, (x, y) => W_(y === H + 3 ? '#4a3020' : '#7a5530'));
+        for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) v.set(cpx + dx, H + 3, dz, W_('#9a7044'));
       }
+    }
+    // deck guns on small ships (their muzzles poke through the bulwark)
+    if (!portRows.length && !P.steam) {
+      const ng = tier === 0 ? 1 : 2;
+      for (let k = 0; k < ng; k++) {
+        const gx = Math.round(L * (tier === 0 ? 0.32 : 0.36 + k * 0.26));
+        if (masts.some(m => Math.abs(m.mx - gx) <= 3)) continue;
+        for (const s of [1, -1]) {
+          const zr = topAt(gx);
+          if (zr < 3) continue;
+          for (let dx = -1; dx <= 1; dx++) v.set(gx + dx, H + 1, s * (zr - 2), W_('#5a3a1e'));
+          v.set(gx - 1, H + 1, s * (zr - 1), W_('#4a3020')); v.set(gx + 1, H + 1, s * (zr - 1), W_('#4a3020'));
+          for (let z = zr - 2; z <= zr + 1; z++) v.set(gx, H + 2, s * z, MT('metal', z === zr + 1 ? '#1a1a1c' : metal));
+          ports.push([gx, H + 2, s]);
+        }
+      }
+    }
+    // barrels and crates along the bulwarks at the front of the main deck
+    if (tier >= 1 && !P.steam) {
+      const bx = mainX1 - 2;
+      for (const s of [1, -1]) {
+        const zr = topAt(bx) - 2;
+        if (zr < 2 || busy(bx - 1, bx, s > 0 ? zr - 1 : -zr, s > 0 ? zr : -zr + 1, H + 1, H + 3)) continue;
+        for (let y = H + 1; y <= H + 3; y++) for (let dx = -1; dx <= 0; dx++) for (const dz of [0, -1]) {
+          v.set(bx + dx, y, s * zr + dz * s, y === H + 2 ? MT('metal', '#4a4440') : W_(mod(dx + dz, 2) ? '#8a5a32' : '#7a4a2a'));
+        }
+      }
+      const kx = Math.round((mainX0 + mainX1) / 2) + 3;
+      const zr = topAt(kx) - 3;
+      if (zr > 2 && !busy(kx, kx + 2, -zr, -zr + 2, H + 1, H + 3) && !masts.some(m => Math.abs(m.mx - kx) <= 3)) {
+        for (let x = kx; x <= kx + 2; x++) for (let y = H + 1; y <= H + 3; y++) for (let z = -zr; z <= -zr + 2; z++) {
+          const e = (x === kx || x === kx + 2) + (y === H + 1 || y === H + 3) + (z === -zr || z === -zr + 2);
+          v.set(x, y, z, MT('plank', e >= 2 ? '#6b4a2e' : '#a0703c'));
+        }
+      }
+    }
+    // wreck: broken planks show dark holes in the hull
+    if (wreck) for (let k = 0; k < 14; k++) {
+      const x = 3 + Math.floor(rnd() * (L - 8)), y = wl + Math.floor(rnd() * (H - wl - 1)), s = rnd() < 0.5 ? 1 : -1;
+      const zr = outer[x][y];
+      if (zr > 0) { v.set(x, y, s * zr, MT('plain', '#1a120c')); v.set(x + 1, y, s * zr, MT('plain', '#24180e')); }
+    }
+
+    // --- rigging (voxel-space points; voxel centres are at +0.5, the centre line at z = 0.5)
+    const seg = (a, b) => rig.push([a, b]);
+    const railPt = (x, s) => { x = Math.max(0, Math.min(L - 1, x)); return [x + 0.5, railTop(x) + 0.5, 0.5 + s * (top[x] + 0.3)]; };
+    if (!P.steam) masts.forEach((m, mi) => {
+      const head = m.nestY || m.top - 4;
+      for (const s of [1, -1]) {
+        const feet = [m.mx - 4, m.mx - 2, m.mx, m.mx + 2].map(x => railPt(Math.max(1, x), s));
+        const hp = [m.mx + 0.5, head, 0.5 + s * (m.nestY ? 2.5 : 0.5)];
+        feet.forEach(f => seg(hp, f));
+        if (!wreck) for (let y = feet[0][1] + 2; y < head - 2; y += 2.5) {
+          const pts = feet.map(f => { const t = (y - f[1]) / (hp[1] - f[1]); return [f[0] + (hp[0] - f[0]) * t, y, f[2] + (hp[2] - f[2]) * t]; });
+          for (let i = 0; i < pts.length - 1; i++) seg(pts[i], pts[i + 1]);
+        }
+        if (m.nestY && !wreck) { seg([m.mx + 0.5, m.top - 2, 0.5], [m.mx + 0.5, m.nestY + 1, 0.5 + s * 3]); seg([m.mx - 0.5, m.top - 2, 0.5], [m.mx - 2.5, m.nestY + 1, 0.5 + s * 2]); }
+        // backstays and braces
+        seg([m.mx + 0.5, m.top, 0.5], railPt(m.mx - 9, s));
+        for (const [yy, yw] of m.yards || []) {
+          seg([m.mx + 2.5, yy + 0.5, 0.5 + s * (yw + 0.5)], railPt(m.mx - 7, s));
+          seg([m.mx + 2.5, yy + 0.5, 0.5 + s * (yw + 0.5)], [m.mx + 0.5, Math.min(m.top, yy + 6), 0.5]);
+        }
+      }
+      const topPt = [m.mx + 0.5, m.top + 0.5, 0.5];
+      if (mi < masts.length - 1) seg(topPt, [masts[mi + 1].mx + 0.5, masts[mi + 1].nestY || Math.round(masts[mi + 1].base + masts[mi + 1].h * 0.5), 0.5]);
+      else if (!wreck) seg(topPt, [tipX + 0.5, tipY + 0.5, 0.5]);
     });
-    if (opts.tier >= 2 && masts.length) {
-      const fm = masts[masts.length - 1];
-      seg([fm.mx + 0.5, H + d.mh - 3, 0.5], [tipX + 0.5, tipY + 0.5, 0.5]);
-      // bobstay under the bowsprit
-      seg([tipX + 0.5, tipY, 0.5], [L + 0.5, H - 1, 0.5]);
+    if (!P.steam && tier >= 1) seg([tipX + 0.5, tipY, 0.5], [L + 1.5, H - 3, 0.5]);
+
+    // --- free deck spots for the crew (main deck and quarterdeck), in voxels
+    const freeAt = (x, y, z) => !busy(x - 1, x + 1, z - 1, z + 1, y, y + 3) && v.has(x, y - 1, z);
+    const spots = [], upper = [];
+    for (let x = mainX0; x <= mainX1; x += 3) {
+      const zr = topAt(x) - 2;
+      for (let z = -zr; z <= zr; z += 3) if (freeAt(x, H + 1, z)) spots.push([x + 0.5, z + 0.5]);
+    }
+    if (cx > 0) for (let x = 2; x < cx - 4; x += 3) {
+      const zr = top[x] - 2;
+      for (let z = -zr; z <= zr; z += 3) if (freeAt(x, cTop + 1, z)) upper.push([x + 0.5, z + 0.5]);
     }
 
     return {
-      vox: v, glow, cloth, rig, waterline: Math.round(H * 0.42), length: L, height: H, halfW: W / 2,
-      deckY: H + 1, mastTops,
+      vox: v, glow, cloth, rig, waterline: wl, length: L, height: H, halfW: W / 2, deckY: H + 1, mastTops,
+      scale: 0.125, cx: L / 2, cz: 0.5, ports,
+      deck: { y: H + 1, spots, upper: { y: cTop + 1, spots: upper } },
     };
   }
 

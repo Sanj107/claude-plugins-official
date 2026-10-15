@@ -193,30 +193,40 @@
   const rigMats = {};
   /**
    * A ship as a THREE.Group: hull mesh, cloth mesh (sails + flags, animated in the shader),
-   * rigging (LineSegments), lamps (glow). userData: { info, length, deckY, halfW } in world units
-   * relative to the group origin (the waterline).
+   * rigging (LineSegments), lamps (glow). The group origin is the hull centre at the waterline,
+   * the bow points to +x. userData (world units, ship-local):
+   *   info, length, halfW, deckY, bowX, sternX, hull (the hull mesh),
+   *   deck: { y, spots: [[x, z], ...], length, width, upper: { y, spots } } — free spots on the main
+   *         deck (and on the quarterdeck) where crew can stand.
    */
   Scene.shipMesh = function (opts, key) {
-    const k = key || ('ship:' + opts.tier + ':' + JSON.stringify(opts.style));
+    const k = key || ('ship:' + opts.tier + ':' + JSON.stringify(opts.style) + (opts.wreck ? ':w' : ''));
     let sp = shipCache.get(k);
     if (!sp) {
       const info = M.ship(opts);
-      const center = [(info.vox.minX + info.vox.maxX + 1) / 2, info.waterline, 0];
-      const mo = { scale: S, center };
-      const hull = VC.Voxel.mesh(info.vox, { scale: S, center, occluders: info.glow });
-      const glow = info.glow.count ? VC.Voxel.mesh(info.glow, { scale: S, center, occluders: info.vox }) : null;
+      const sc = info.scale || S;
+      const center = [info.cx !== undefined ? info.cx : (info.vox.minX + info.vox.maxX + 1) / 2, info.waterline, info.cz || 0];
+      const mo = { scale: sc, center };
+      const hull = VC.Voxel.mesh(info.vox, { scale: sc, center, occluders: info.glow });
+      const glow = info.glow.count ? VC.Voxel.mesh(info.glow, { scale: sc, center, occluders: info.vox }) : null;
       const cloth = info.cloth.length ? this.mergeGeos(info.cloth.map(c => ({ geo: VC.Voxel.mesh(c.vox, Object.assign({ attr: { name: 'cloth', size: 3, fn: c.fn }, occluders: info.vox }, mo)) }))) : null;
       let rig = null;
       if (info.rig.length) {
         const pts = new Float32Array(info.rig.length * 6);
         info.rig.forEach(([a, b], i) => {
-          for (let j = 0; j < 3; j++) { pts[i * 6 + j] = (a[j] - center[j]) * S; pts[i * 6 + 3 + j] = (b[j] - center[j]) * S; }
+          for (let j = 0; j < 3; j++) { pts[i * 6 + j] = (a[j] - center[j]) * sc; pts[i * 6 + 3 + j] = (b[j] - center[j]) * sc; }
         });
         rig = new THREE.BufferGeometry();
         rig.setAttribute('position', new THREE.BufferAttribute(pts, 3));
         rig.computeBoundingSphere();
       }
-      sp = { info, hull, glow, cloth, rig, center };
+      const toW = ([x, z]) => [+((x - center[0]) * sc).toFixed(3), +((z - center[2]) * sc).toFixed(3)];
+      const dk = info.deck || { y: info.deckY, spots: [] };
+      const deck = {
+        y: (dk.y - center[1]) * sc, spots: dk.spots.map(toW), length: info.length * sc, width: info.halfW * 2 * sc,
+        upper: dk.upper ? { y: (dk.upper.y - center[1]) * sc, spots: dk.upper.spots.map(toW) } : { y: 0, spots: [] },
+      };
+      sp = { info, hull, glow, cloth, rig, center, sc, deck };
       shipCache.set(k, sp);
     }
     const st = opts.style;
@@ -235,14 +245,15 @@
       grp.add(new THREE.LineSegments(sp.rig, lm));
     }
     if (sp.glow) grp.add(new THREE.Mesh(sp.glow, this.glowMaterial()));
-    const info = sp.info;
+    const info = sp.info, sc = sp.sc;
     grp.userData.info = info;
-    grp.userData.length = info.length * S;
-    grp.userData.deckY = (info.deckY - sp.center[1]) * S;
-    grp.userData.halfW = info.halfW * S;
-    grp.userData.bowX = (info.length - sp.center[0]) * S;
-    grp.userData.sternX = -sp.center[0] * S;
+    grp.userData.length = info.length * sc;
+    grp.userData.deckY = (info.deckY - sp.center[1]) * sc;
+    grp.userData.halfW = info.halfW * sc;
+    grp.userData.bowX = (info.length - sp.center[0]) * sc;
+    grp.userData.sternX = -sp.center[0] * sc;
     grp.userData.hull = hullMesh;
+    grp.userData.deck = sp.deck;
     return grp;
   };
 
