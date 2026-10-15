@@ -36,13 +36,17 @@
   Scene.geoCache = geoCache;
 
   Scene.init = function (canvas, quality) {
-    const hi = quality === 'high' || (quality === 'auto' && (window.devicePixelRatio || 1) <= 2.5);
-    const r = new THREE.WebGLRenderer({ canvas, antialias: hi, powerPreference: 'high-performance' });
-    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality === 'low' ? 1 : hi ? 2 : 1.5));
+    quality = quality || 'auto';
+    const dpr = window.devicePixelRatio || 1;
+    // MSAA is fixed for the life of the GL context: on unless asked for low graphics or the
+    // screen is so dense that it is not worth the bandwidth.
+    const aa = quality !== 'low' && dpr <= 2.5;
+    const r = new THREE.WebGLRenderer({ canvas, antialias: aa, powerPreference: 'high-performance' });
+    r.setPixelRatio(Math.min(dpr, quality === 'low' ? 1 : 2));
     this.renderer = r;
     const scene = new THREE.Scene();
     this.scene = scene;
-    scene.fog = new THREE.Fog(0x9fd8f5, 40, 140);
+    scene.fog = new THREE.Fog(0x9fd8f5, 42, 150);
     this.camera = new THREE.PerspectiveCamera(52, 1, 0.1, 400);
     this.hemi = new THREE.HemisphereLight(0xdff3ff, 0x7a6a4a, 0.75);
     scene.add(this.hemi);
@@ -50,6 +54,8 @@
     this.sun.position.set(-20, 40, 25);
     scene.add(this.sun);
     this.quality = quality;
+    this.qualityLevel = this.resolveQuality(quality);
+    this.Q = QUALITY[this.qualityLevel];
     this.buildSea();
     this.buildSky();
     this.islandGroup = new THREE.Group();
@@ -62,7 +68,79 @@
     this.buildParticles();
     this.raycaster = new THREE.Raycaster();
     this.resize();
+    this.applyQuality(this.qualityLevel);
     this.fire('init');
+  };
+
+  // ------------------------------------------------------------------ graphics quality
+  // settings.quality: 'auto' | 'low' | 'medium' | 'high' ('auto' picks a level from the device and
+  // a short frame-time probe). A level sets the pixel-ratio cap, the voxel-water density and LOD
+  // distance (sea.js), the strength of the surface textures and the clouds and their shadows.
+  const QUALITY = {
+    low: { pr: 1, water: 'low', detail: 0.55, clouds: 5, shadows: false },
+    medium: { pr: 1.5, water: 'medium', detail: 0.85, clouds: 8, shadows: true },
+    high: { pr: 2, water: 'high', detail: 1, clouds: 11, shadows: true },
+  };
+  const LEVELS = ['low', 'medium', 'high'];
+  Scene.QUALITY = QUALITY;
+
+  /** First guess for 'auto' from the GPU and the screen. */
+  Scene.guessQuality = function () {
+    const r = this.renderer, caps = r.capabilities, gl = r.getContext();
+    let name = '';
+    try {
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      name = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER) || '');
+    } catch (e) { /* not exposed */ }
+    if (/swiftshader|llvmpipe|software|mali-4|adreno \(tm\) [23]\d\d\b|powervr sgx/i.test(name)) return 'low';
+    if (caps.precision !== 'highp' || caps.maxTextureSize < 4096) return 'low';
+    if (!caps.isWebGL2) return 'medium';
+    if (/mali-t|adreno \(tm\) [45]\d\d\b/i.test(name)) return 'medium';
+    return (window.devicePixelRatio || 1) > 3 ? 'medium' : 'high';
+  };
+
+  Scene.resolveQuality = function (q) {
+    if (QUALITY[q]) return q;
+    if (!this.autoLevel) {
+      this.autoLevel = this.guessQuality();
+      this.probe = { n: 0, t: 0, c: 0, steps: 0 };
+    }
+    return this.autoLevel;
+  };
+
+  /** Switches graphics quality at runtime (settings panel). */
+  Scene.setQuality = function (q) {
+    this.quality = q || 'auto';
+    if (this.quality === 'auto' && this.probe) { this.probe.n = 0; this.probe.t = 0; this.probe.c = 0; }
+    this.applyQuality(this.resolveQuality(this.quality));
+  };
+
+  Scene.applyQuality = function (level) {
+    const Q = QUALITY[level] || QUALITY.medium;
+    this.qualityLevel = level;
+    this.Q = Q;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.pr));
+    if (this.w) this.resize();
+    VC.Voxel.uniforms.uVxDetail.value = Q.detail;
+    this.fire('quality', level, Q);
+  };
+
+  /** 'auto': measures the frame time for a few seconds and steps the level down (or once up). */
+  Scene.probeQuality = function (dt) {
+    const p = this.probe;
+    if (!p || this.quality !== 'auto' || p.done) return;
+    p.n++;
+    if (p.n < 45 || dt > 0.25) return; // skip loading hitches and background pauses
+    p.t += dt; p.c++;
+    if (p.c < 100) return;
+    const avg = p.t / p.c, i = LEVELS.indexOf(this.autoLevel);
+    p.n = 0; p.t = 0; p.c = 0;
+    let next = i;
+    if (avg > 0.036 && i > 0) next = i - 1;
+    else if (avg < 0.0185 && i < 2 && !p.up) { next = i + 1; p.up = true; }
+    if (next === i || ++p.steps > 3) { p.done = true; return; }
+    this.autoLevel = LEVELS[next];
+    this.applyQuality(this.autoLevel);
   };
 
   Scene.resize = function () {
@@ -101,6 +179,7 @@
         'transformed.y += cloth.y * 0.3 * cos(uTime * 6.0 + position.x * 4.0 + cph);',
       ].join('\n'));
     };
+    VC.Voxel.texturize(m, k);
     matCache[k] = m;
     return m;
   };
@@ -108,10 +187,7 @@
   /** Lamps, windows and fire: vertex colour emission scaled by Scene.glowLevel (night). */
   Scene.glowMaterial = function () {
     if (matCache.glow) return matCache.glow;
-    const m = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xffffff, emissiveIntensity: 0.15 });
-    m.onBeforeCompile = sh => {
-      sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= vColor;');
-    };
+    const m = VC.Voxel.texturize(new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xffffff, emissiveIntensity: 0.15 }), 'glow');
     matCache.glow = m;
     return m;
   };
@@ -125,9 +201,13 @@
     return matCache.ghost || (matCache.ghost = VC.Voxel.material({ transparent: true, opacity: 0.82, emissive: 0x1a4a3a }));
   };
 
+  /** Scale of a normalized integer array (value / scale = float). */
+  const NORM = new Map([[Int8Array, 127], [Uint8Array, 255], [Int16Array, 32767], [Uint16Array, 65535]]);
   /**
    * Merges geometries into one (positions/normals transformed). items: [{ geo, matrix? }].
-   * Keeps position, normal, color and any extra attribute that every item has.
+   * Keeps position, normal, color and any extra attribute that every item has (plus the voxel
+   * texture attribute `vox`, zero = untextured where an item lacks it). Attribute array types
+   * (Int8 normals, Uint8 colours, Int16 voxel coordinates) are kept when all items agree.
    */
   Scene.mergeGeos = function (items) {
     items = items.filter(it => it.geo && it.geo.attributes.position.count);
@@ -139,10 +219,17 @@
       return out;
     }
     const names = Object.keys(items[0].geo.attributes).filter(n => items.every(it => it.geo.attributes[n]));
+    if (names.indexOf('vox') < 0 && items.some(it => it.geo.attributes.vox)) names.push('vox');
     let nv = 0, ni = 0;
     for (const it of items) { nv += it.geo.attributes.position.count; ni += it.geo.index ? it.geo.index.count : it.geo.attributes.position.count; }
-    const arrs = {};
-    for (const n of names) arrs[n] = new Float32Array(nv * items[0].geo.attributes[n].itemSize);
+    const arrs = {}, spec = {};
+    for (const n of names) {
+      const ref = items.find(it => it.geo.attributes[n]).geo.attributes[n];
+      const T = ref.array.constructor, norm = !!ref.normalized, size = ref.itemSize;
+      const same = items.every(it => { const a = it.geo.attributes[n]; return !a || (a.array.constructor === T && !!a.normalized === norm && a.itemSize === size); });
+      spec[n] = same ? { T, norm, size } : { T: Float32Array, norm: false, size };
+      arrs[n] = new spec[n].T(nv * size);
+    }
     const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
     const nm = new THREE.Matrix3();
     const bb = [1e9, 1e9, 1e9, -1e9, -1e9, -1e9];
@@ -152,23 +239,30 @@
       let e = null, q = null, ql = 1;
       if (m) { nm.getNormalMatrix(m); e = m.elements; q = nm.elements; ql = 1 / (Math.hypot(q[0], q[1], q[2]) || 1); }
       for (const n of names) {
-        const src = g.attributes[n].array, sz = g.attributes[n].itemSize, dst = arrs[n];
-        if (e && n === 'position') {
+        const a = g.attributes[n];
+        if (!a) continue; // stays zero
+        const src = a.array, sz = a.itemSize, dst = arrs[n], sp = spec[n];
+        const kin = a.normalized ? 1 / (NORM.get(src.constructor) || 1) : 1;
+        if (n === 'position' && (e || !(src instanceof Float32Array))) {
           for (let i = 0, o = vo * 3; i < cnt * 3; i += 3, o += 3) {
-            const x = src[i], y = src[i + 1], z = src[i + 2];
-            const px = e[0] * x + e[4] * y + e[8] * z + e[12], py = e[1] * x + e[5] * y + e[9] * z + e[13], pz = e[2] * x + e[6] * y + e[10] * z + e[14];
+            const x = src[i] * kin, y = src[i + 1] * kin, z = src[i + 2] * kin;
+            let px = x, py = y, pz = z;
+            if (e) { px = e[0] * x + e[4] * y + e[8] * z + e[12]; py = e[1] * x + e[5] * y + e[9] * z + e[13]; pz = e[2] * x + e[6] * y + e[10] * z + e[14]; }
             dst[o] = px; dst[o + 1] = py; dst[o + 2] = pz;
             if (px < bb[0]) bb[0] = px; if (py < bb[1]) bb[1] = py; if (pz < bb[2]) bb[2] = pz;
             if (px > bb[3]) bb[3] = px; if (py > bb[4]) bb[4] = py; if (pz > bb[5]) bb[5] = pz;
           }
         } else if (e && n === 'normal') {
           // rotation + uniform scale: unit normals only need the one scale factor
+          const ko = sp.norm ? (NORM.get(sp.T) || 1) : 1, rnd = sp.T !== Float32Array;
           for (let i = 0, o = vo * 3; i < cnt * 3; i += 3, o += 3) {
-            const x = src[i], y = src[i + 1], z = src[i + 2];
-            dst[o] = (q[0] * x + q[3] * y + q[6] * z) * ql; dst[o + 1] = (q[1] * x + q[4] * y + q[7] * z) * ql; dst[o + 2] = (q[2] * x + q[5] * y + q[8] * z) * ql;
+            const x = src[i] * kin, y = src[i + 1] * kin, z = src[i + 2] * kin;
+            const nx = (q[0] * x + q[3] * y + q[6] * z) * ql * ko, ny = (q[1] * x + q[4] * y + q[7] * z) * ql * ko, nz = (q[2] * x + q[5] * y + q[8] * z) * ql * ko;
+            dst[o] = rnd ? Math.round(nx) : nx; dst[o + 1] = rnd ? Math.round(ny) : ny; dst[o + 2] = rnd ? Math.round(nz) : nz;
           }
         } else {
-          dst.set(src.subarray(0, cnt * sz), vo * sz);
+          if (sp.T === src.constructor) dst.set(src.subarray(0, cnt * sz), vo * sz);
+          else for (let i = 0, o = vo * sz; i < cnt * sz; i++, o++) dst[o] = src[i] * kin;
           if (n === 'position') for (let i = 0; i < cnt * 3; i += 3) {
             const px = src[i], py = src[i + 1], pz = src[i + 2];
             if (px < bb[0]) bb[0] = px; if (py < bb[1]) bb[1] = py; if (pz < bb[2]) bb[2] = pz;
@@ -180,7 +274,7 @@
       else { for (let i = 0; i < cnt; i++) idx[io + i] = vo + i; io += cnt; }
       vo += cnt;
     }
-    for (const n of names) out.setAttribute(n, new THREE.BufferAttribute(arrs[n], items[0].geo.attributes[n].itemSize));
+    for (const n of names) out.setAttribute(n, new THREE.BufferAttribute(arrs[n], spec[n].size, spec[n].norm));
     out.setIndex(new THREE.BufferAttribute(idx, 1));
     // bounding sphere from the box (cheaper than computeBoundingSphere on big merges)
     const c = new THREE.Vector3((bb[0] + bb[3]) / 2, (bb[1] + bb[4]) / 2, (bb[2] + bb[5]) / 2);
@@ -404,10 +498,18 @@
     cam.setViewOffset(this.w, this.h, 0, this.h * off * 0.5, this.w, this.h);
   };
 
+  /** Seconds for a full day (dayT 0..1: 0.08 sunrise, 0.5 noon, 0.62 sunset, 0.72..1 night). */
+  Scene.dayLen = 1200;
+
   Scene.update = function (dt) {
     this.t += dt;
+    this.dayT = (this.dayT + dt / this.dayLen) % 1;
+    this.probeQuality(dt);
     this.applyViewOffset(dt);
     const t = this.t;
+    const U = VC.Voxel.uniforms;
+    U.uVxTime.value = t;
+    U.uVxNight.value = this.glowLevel || 0;
     this.updateSea(t);
     this.applySky();
     this.updateSky(dt, t);
