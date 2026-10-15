@@ -60,6 +60,7 @@ node tools/relay_server.js 8080        # на любом VPS/компьютер�
 
 ```bash
 tools/build_apk.sh                      # APK без Android SDK (JDK + curl + unzip + zip)
+tools/build_web.sh /tmp/web              # веб-версия (браузер, iPhone): те же файлы игры, страница без Android-оболочки
 node tools/sim_economy.js 40 0 4        # симуляция баланса: когда бот проходит главы
 npx http-server -p 8766 -c-1 .          # затем:
 node tools/test_smoke.js                # UI, пролог, все вкладки, события, бой, дуэль с ботом
