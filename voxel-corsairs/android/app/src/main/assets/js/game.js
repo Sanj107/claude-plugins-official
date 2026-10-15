@@ -374,11 +374,33 @@
     VC.Audio.sfx('buy');
     this.afterChange();
   };
+  // Talent reset: costs pearls and can be used once per 12 hours (testers can switch the timer off).
+  G.TALENT_RESET_COST = 20;
+  G.TALENT_RESET_CD = 12 * 3600 * 1000;
+  /** Milliseconds until the next talent reset is allowed (0 = available now). */
+  G.talentResetLeft = function () {
+    const s = this.s;
+    if (s.settings.tester && s.settings.noResetTimer) return 0;
+    const at = s.talentResetAt || 0;
+    // A clock moved backwards must not lock the reset for longer than one cooldown.
+    return Math.max(0, Math.min(this.TALENT_RESET_CD, at + this.TALENT_RESET_CD - Date.now()));
+  };
   G.resetTalents = function () {
-    UI.confirm('Сбросить таланты?', 'Все очки вернутся. Стоимость: 💎20', 'Сбросить', () => {
-      if (!this.spendPearls(20)) return;
-      for (const k in this.s.talents) this.s.talents[k] = 0;
-      ST.recompute(this.s);
+    const s = this.s;
+    const spent = Object.keys(s.talents).reduce((a, k) => a + s.talents[k], 0);
+    if (!spent) { UI.toast('Таланты ещё не изучены — сбрасывать нечего', 'bad'); return; }
+    const left = this.talentResetLeft();
+    if (left > 0) { VC.Audio.sfx('error'); UI.toast(`Следующий сброс через ${U.fmtTime(left / 1000)}`, 'bad'); return; }
+    const cost = this.TALENT_RESET_COST;
+    const timer = s.settings.tester && s.settings.noResetTimer ? 'Таймер отключён (режим тестировщика).' : 'Следующий сброс — через 12 ч.';
+    UI.confirm('Сбросить таланты?', `Все очки (${spent}) вернутся, их можно распределить заново. Стоимость: 💎${cost}. ${timer}`, 'Сбросить', () => {
+      if (this.talentResetLeft() > 0 || !this.spendPearls(cost)) return;
+      for (const k in s.talents) s.talents[k] = 0;
+      s.talentResetAt = Date.now();
+      ST.recompute(s);
+      VC.Audio.sfx('buy');
+      UI.toast(`Таланты сброшены: ${spent} очк. вернулись`, 'ach');
+      this.save();
       this.afterChange();
     });
   };
@@ -919,6 +941,7 @@
       case 'raidLvl': VC.Panels.map.step(+d.v); break;
       case 'replay': VC.Panels.replay(+d.i); break;
       case 'note': VC.Panels.showNote(+d.i); break;
+      case 'achInfo': VC.Panels.achInfo(d.id); break;
       default:
         if (VC.Duel.action(name, arg, d)) return;
         console.warn('unknown action', act);

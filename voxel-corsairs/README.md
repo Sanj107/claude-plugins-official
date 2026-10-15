@@ -67,6 +67,7 @@ node tools/test_duel.js                 # две вкладки = два тел�
 node tools/relay_server.js 8090 & node tools/test_duel.js "" "" --online ws://localhost:8090   # то же через relay
 node tools/test_story.js                # весь сюжет 65/65, бесконечный режим, Легенда, офлайн-доход
 node tools/test_overlap.js              # постройки не вылезают за свой участок, пальмы и камни не залезают на участки
+node tools/test_meta.js                 # сброс талантов (💎, раз в 12 ч), описания достижений, заставка
 ```
 
 С установленным Android SDK можно собрать и через Gradle: `cd android && ./gradlew assembleRelease`.

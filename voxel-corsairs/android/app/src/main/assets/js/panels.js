@@ -427,8 +427,25 @@
         }
         h += '</div>';
       }
-      h += `<div style="text-align:center;margin:10px"><button class="btn small" data-act="resetTalents">Сбросить таланты (💎20)</button></div>`;
+      h += `<div class="card dark" style="text-align:center">${this.resetHtml()}</div>`;
       return h;
+    },
+    /** Talent reset button: price, or the time left until the 12-hour cooldown ends. */
+    resetHtml() {
+      const left = G().talentResetLeft();
+      const cost = G().TALENT_RESET_COST;
+      if (left > 0) return `<div class="sub">♻️ Сброс талантов доступен раз в 12 ч</div>
+        <button class="btn small disabled" data-act="resetTalents">⏳ Через <span data-reset-left>${U.fmtTime(left / 1000)}</span></button>`;
+      return `<div class="sub">♻️ Сброс талантов — раз в 12 ч</div>
+        <button class="btn small pearl" data-act="resetTalents">Сбросить таланты · 💎${cost}</button>`;
+    },
+    live(body, sub) {
+      if (sub && sub !== 'talents') return;
+      const t = body.querySelector('[data-reset-left]');
+      if (!t) return;
+      const left = G().talentResetLeft();
+      if (left > 0) t.textContent = U.fmtTime(left / 1000);
+      else { const box = t.closest('.card'); if (box) box.innerHTML = this.resetHtml(); }
     },
     renderCrew() {
       const s = S();
@@ -470,7 +487,8 @@
       for (const a of VC.ACHIEVEMENTS) {
         const done = !!s.achievements[a.id];
         const cur = Math.min(a.n, s.stats[a.stat] || 0);
-        h += `<div class="card row ${done ? '' : 'locked'}" style="${done ? '' : 'filter:none;opacity:.85'}"><div class="ico-big">${done ? '🏆' : '🔒'}</div><div class="grow"><div class="name" style="font-size:13px">${a.name}</div>
+        h += `<div class="card row ach ${done ? '' : 'locked'}" data-act="achInfo" data-id="${a.id}" style="${done ? '' : 'filter:none;opacity:.85'}"><div class="ico-big">${done ? '🏆' : '🔒'}</div><div class="grow"><div class="name" style="font-size:13px">${a.name} <span class="mini">ⓘ</span></div>
+          <div class="mini ach-how">${esc(P.achHow(a))}</div>
           <div class="bar" style="margin-top:4px"><i style="width:${cur / a.n * 100}%"></i></div><div class="mini">${fmt(cur)} / ${fmt(a.n)}</div></div><span class="tag b">💎${a.pearls}</span></div>`;
       }
       return h;
@@ -535,6 +553,7 @@
         ${row('🧪 Режим тестировщика', 'tester')}
         ${st.tester ? `<div class="sub" style="color:#d9c49a">Ускорение времени и подарки для проверки контента.</div>
           <div class="toggle-row" style="margin:6px 0">${[1, 5, 20].map(v => `<button data-speed="${v}" class="${(st.speed || 1) === v ? 'active' : ''}">×${v}</button>`).join('')}</div>
+          ${row('♻️ Сброс талантов без таймера', 'noResetTimer')}
           <div class="btns" style="justify-content:flex-start;margin-top:6px"><button class="btn small" data-x="gold">+1 ч дохода</button><button class="btn small" data-x="gold10">+×10 золота</button><button class="btn small pearl" data-x="pearls">+100 💎</button>
           <button class="btn small" data-x="xp">+5 уровней</button><button class="btn small red" data-x="skip">Пропустить миссию</button><button class="btn small" data-x="event">Событие</button></div>` : ''}
         <hr style="border-color:#6b4423">
@@ -644,6 +663,51 @@
     const m = VC.MISSIONS[i];
     UI.dialogue(m.intro.concat(m.outro), { chapter: m.title });
   };
+  // ================================================================== achievement help
+  // What to do for each achievement statistic (an achievement may also carry its own `desc`).
+  const ACH_HOW = {
+    taps: n => `Тапните по острову ${fmt(n)} раз — считаются все тапы за всю игру, в том числе по сундуку.`,
+    goldEarned: n => `Заработайте за всё время ${fmt(n)} 🪙: доход построек, тапы, награды миссий, добыча в боях и события.`,
+    wins: n => `Победите в ${fmt(n)} морских боях: сюжетные бои, рейды с карты и бои из событий у острова.`,
+    bosses: n => `Победите ${fmt(n)} боссов — сюжетных капитанов и чудовищ (в рейдах они тоже попадаются).`,
+    buildingLevels: n => `Купите в сумме ${fmt(n)} уровней построек на острове (все постройки вместе).`,
+    shipTier: n => { const sh = VC.SHIPS[n - 1]; return `Получите корабль ${n}-го класса${sh ? ` — «${sh.name}»` : ''} (вкладка «Корабль», новые классы открывает сюжет).`; },
+    level: n => `Поднимите капитана до ${n} уровня. Опыт дают бои, сюжетные миссии и события.`,
+    parrots: n => `Поймайте ${fmt(n)} попугаев: когда над островом пролетает попугай, тапните по нему.`,
+    events: n => `Поучаствуйте в ${fmt(n)} событиях у острова: бутылки с записками, крабы, торговцы, попугаи, шторм и другие.`,
+    expeditions: n => `Завершите ${fmt(n)} экспедиций (вкладка «Корабль» → «Экспедиции», откроются после победы над Ржавым Крюком).`,
+    notes: n => `Найдите ${fmt(n)} записок Кремня — в бутылках у берега и в экспедициях.`,
+    pvpWins: n => `Победите живых игроков в ${fmt(n)} дуэлях (вкладка «Дуэль», дуэли с ботом не считаются).`,
+    frenzies: n => `Устройте ${fmt(n)} золотых лихорадок: тапайте быстро, пока шкала 🔥 справа не заполнится.`,
+    shards: n => `Соберите все ${fmt(n)} осколков Сердца Моря, проходя сюжет.`,
+    prestiges: n => `Станьте легендой ${n > 1 ? fmt(n) + ' раз' : ''}: «Капитан» → «🌟 Легенда» (открывается в 5-й главе). Путь начнётся заново, но со Славой.`,
+    endless: n => `Пройдите ${fmt(n)} уровней в Бездонных водах — бесконечном регионе карты, который открывается после финала сюжета.`,
+    boardings: n => `Возьмите на абордаж ${fmt(n)} кораблей.`,
+  };
+  P.achHow = function (a) {
+    if (a.desc) return a.desc;
+    const f = ACH_HOW[a.stat];
+    return f ? f(a.n) : `Прогресс: ${fmt(a.n)}`;
+  };
+  /** Achievement card tap: what to do, progress and reward. */
+  P.achInfo = function (id) {
+    const s = S();
+    const a = VC.ACHIEVEMENTS.find(x => x.id === id);
+    if (!a) return;
+    const at = s.achievements[a.id];
+    const cur = Math.min(a.n, s.stats[a.stat] || 0);
+    const when = typeof at === 'number' && at > 1 ? new Date(at).toLocaleDateString('ru-RU') : '';
+    UI.modal({
+      icon: at ? '🏆' : '🔒',
+      title: esc(a.name),
+      html: `<p>${esc(P.achHow(a))}</p>
+        <div class="bar" style="margin:8px 0 4px"><i style="width:${cur / a.n * 100}%"></i></div>
+        <div class="mini">${at ? `Получено${when ? ' ' + when : ''} ✓` : `Прогресс: ${fmt(cur)} / ${fmt(a.n)}`}</div>
+        <p class="mini" style="margin-top:8px">Награда: 💎${a.pearls} и +1% к доходу навсегда.</p>`,
+      buttons: [{ label: 'Понятно', cls: 'green' }],
+    });
+  };
+
   P.showNote = function (i) {
     UI.modal({ title: '📜 Записка №' + (i + 1), html: `<p style="font-style:italic">${esc(VC.NOTES[i])}</p>`, buttons: [{ label: 'Закрыть' }] });
   };
