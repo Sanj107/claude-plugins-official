@@ -192,9 +192,11 @@
   const shipCache = new Map();
   const rigMats = {};
   /**
-   * A ship as a THREE.Group: hull mesh, cloth mesh (sails + flags, animated in the shader),
-   * rigging (LineSegments), lamps (glow). The group origin is the hull centre at the waterline,
-   * the bow points to +x. userData (world units, ship-local):
+   * A ship as a THREE.Group: hull mesh, cloth mesh (sails + flags, animated in the shader; the
+   * square sails and their yards are braced around each mast, opts.brace radians), rigging
+   * (LineSegments), lamps (glow). Built at 0.125 units per voxel; geometry is cached per key.
+   * The group origin is the hull centre at the waterline, the bow points to +x. userData (world
+   * units, ship-local):
    *   info, length, halfW, deckY, bowX, sternX, hull (the hull mesh),
    *   deck: { y, spots: [[x, z], ...], length, width, upper: { y, spots } } — free spots on the main
    *         deck (and on the quarterdeck) where crew can stand.

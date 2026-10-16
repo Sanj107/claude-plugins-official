@@ -30,7 +30,9 @@
 //   }
 //   Hooks fired: 'island'(state) after buildIsland, 'buildings'(state), 'playerShip'(group, state).
 //   Lamps glow through Scene.glowMaterial(); its level follows Scene.night (Scene.glowLevel 0..1).
-//   The docked ship's group carries userData.deck (crew spots, see Scene.shipMesh).
+//   The docked ship (Scene.playerShip) carries userData.deck (crew spots in ship-local units, see
+//   Scene.shipMesh); the group is scaled down for big hulls, so add crew as children of the group
+//   (or apply its matrixWorld). userData.wreck is set while it is the prologue wreck on the beach.
 (function (VC) {
   const Scene = VC.Scene;
   const M = VC.Models;
@@ -625,7 +627,7 @@
     VC.PLOTS.forEach((p, i) => { const w = plotWorld(i); doors[i] = [w.x, w.z + 1.05]; });
     const shoreline = traceShore(ter);
     // sea spots in front of the island (in view of the fixed camera) and far out
-    const near = [[-4.2, 8.6], [-3.0, 10.4], [-6.8, 10.6], [-1.8, 10.9], [6.4, 9.6], [-8.4, 11.6], [7.6, 8.8], [4.2, 11.4], [-10.2, 12.2], [12.0, 4.6], [9.8, 12.6], [0.6, 12.4]];
+    const near = [[-3.4, 8.8], [-3.0, 10.4], [-2.4, 11.3], [-6.8, 10.6], [-1.8, 10.9], [6.4, 9.6], [-8.4, 11.6], [7.6, 8.8], [4.2, 11.4], [-10.2, 12.2], [12.0, 4.6], [9.8, 12.6], [0.6, 12.4]];
     const horizon = [[-26, -30], [-13, -33], [0, -35], [13, -33], [26, -30], [-30, 6], [30, 8], [-18, 22], [18, 22]];
     return {
       radius: 18, ground: GY, groundY, paths, shoreline, plotWorld, dock: { x: DOCK.x, z: DOCK.z },

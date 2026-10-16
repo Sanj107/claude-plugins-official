@@ -870,8 +870,10 @@
         const t = k / len;
         const fx = tx + ca * k, fz = tz + sa * k, fy = h + 1 + 2.2 * t - droop * t * t;
         v.set(fx, fy, fz, MT('leaf', shade(LEAF[(a + k) % 4], 1.05 - t * 0.15)));
-        if (k > 1 && k < len) {
-          const lw = k < len * 0.7 ? 1 : 0;
+        // leaflets on both sides of the rib, longer near the trunk; gaps between fronds keep the
+        // crown star-shaped when seen from above
+        if (k > 1 && k < len && (k & 1 || k < len * 0.5)) {
+          const lw = k < len * 0.6 ? 1 : 0;
           for (let q = 1; q <= 1 + lw; q++) {
             v.set(fx - sa * q, fy - q * 0.6, fz + ca * q, MT('leaf', LEAF[(a + k + q) % 4]));
             v.set(fx + sa * q, fy - q * 0.6, fz - ca * q, MT('leaf', LEAF[(a + k + q + 1) % 4]));
@@ -1351,7 +1353,7 @@
       // drying net on poles, hanging fish
       v.box(5, 0, -5, 5, 10, -5, MT('bark', '#6b4a2e')); v.box(5, 0, 3, 5, 10, 3, MT('bark', '#6b4a2e'));
       v.box(5, 10, -4, 5, 10, 2, W('#6b4a2e'));
-      for (let z = -4; z <= 2; z++) for (let y = 3; y <= 9; y++) if ((y + z) % 2 === 0) v.set(5, y - (Math.abs(z + 1) < 2 && y < 5 ? 1 : 0), z, MT('cloth', '#d8d0b0'));
+      for (let z = -4; z <= 2; z++) for (let y = 4; y <= 9; y++) if (mod(y + z, 3) === 0 || mod(y - z, 3) === 0) v.set(5, y - (Math.abs(z + 1) < 2 && y < 6 ? 1 : 0), z, MT('cloth', y === 9 ? '#a89a70' : '#c8bc98'));
       v.set(5, 6, -1, MT('plain', '#9ab8c8')); v.set(5, 5, 1, MT('plain', '#c87a3a')); v.set(5, 7, -3, MT('cloth', '#e8b04a'));
       for (const z of [-4, -2, 0]) { v.set(3, 8, z, MT('metal', '#9ab8c8')); v.set(3, 7, z, MT('metal', '#b8c8d0')); }
       // rowboat pulled up in front
@@ -1820,6 +1822,18 @@
     const P = parts();
     (BUILD[id] || BUILD.hut)(P);
     stage = stage || 0;
+    // tufts of grass, small flowers and pebbles on the free ground of the plot (not in front of
+    // the middle of the building, where the doors are)
+    const blocked = (x, z) => { for (let y = 0; y <= 4; y++) if (P.v.has(x, y, z) || P.g.has(x, y, z)) return true; return false; };
+    for (let x = -7; x <= 6; x++) for (let z = -7; z <= 6; z++) {
+      const h = hash(x * 3 + 1, 5, z * 7 + id.length);
+      if (h > 0.12 || (Math.abs(x + 0.5) < 3 && z > 2) || blocked(x, z)) continue;
+      const k = Math.floor(hash(z, x, 11) * 4);
+      if (k === 0) { P.v.set(x, 0, z, MT('grass', '#5cb84f')); P.v.set(x, 1, z, MT('grass', '#6cc251')); }
+      else if (k === 1) { P.v.set(x, 0, z, MT('leaf', '#3f8f3a')); P.v.set(x, 1, z, MT('leaf', ['#ff6fa8', '#ffd23f', '#ffffff', '#b07aff'][(x + z + 8) & 3])); }
+      else if (k === 2) P.v.set(x, 0, z, MT('rock', '#9a9a96'));
+      else P.v.set(x, 0, z, MT('grass', '#4fa64a'));
+    }
     if (stage >= 1) for (const x of [-7, 6]) {
       let free = true;
       for (let y = 0; y <= 8; y++) if (P.v.has(x, y, 7) || P.v.has(x, y, 6)) { free = false; break; }

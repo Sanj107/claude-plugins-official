@@ -79,7 +79,7 @@
   function seaSpots() {
     const I = isl();
     const d = I && I.dock ? I.dock : { x: 1.5, z: 9.2 };
-    const list = I && I.spots && I.spots.sea ? I.spots.sea.near.filter(p => Math.abs(p[0]) < 6.5 && p[1] < 11.5 && (Math.abs(p[0] - d.x) > 3.4 || p[1] > d.z + 2.2)) : [];
+    const list = I && I.spots && I.spots.sea ? I.spots.sea.near.filter(p => Math.abs(p[0]) < 5.6 && p[1] < 11.5 && (Math.abs(p[0] - d.x) > 3.4 || p[1] > d.z + 2.2)) : [];
     return list.length ? list : [[-4.0, 8.8], [-3.2, 10.4], [5.6, 9.4]];
   }
 
@@ -128,7 +128,8 @@
     const mesh = sc.voxMesh('bottle', () => VC.Models.bottle(), { scale: 0.12, center: 'base' });
     const g = new THREE.Group(); g.add(mesh);
     // drifts in from the open sea beside the pier and stops at the water's edge of the beach
-    const bs = U.pick(beachSpots(true));
+    const left = beachSpots(true).filter(p => p[0] < 0);
+    const bs = U.pick(left.length ? left : beachSpots(true));
     const bx = bs[0] + U.rnd(-0.3, 0.3), stopZ = shoreZ(bx) + 0.3;
     g.position.set(bx, 0.1, stopZ + 3.5);
     let t = 0;
