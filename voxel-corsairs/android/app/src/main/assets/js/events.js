@@ -56,6 +56,7 @@
   const isl = () => VC.Scene.island;
   const SHIP_LANE = 11.6;               // passing ships sail across the bottom of the view
   const FREE_X = [[-4.6, -2.2], [5.0, 5.6]]; // sea in view, clear of the pier and the docked ship
+  const inFree = x => FREE_X.some(r => x >= r[0] - 0.4 && x <= r[1] + 0.4);
   function freeX() { const r = U.pick(FREE_X); return U.rnd(r[0], r[1]); }
   /** z of the water's edge in front of the town at x (marching in from the sea). */
   function shoreZ(x) {
@@ -68,6 +69,19 @@
     return 6.2;
   }
   function groundY(x, z, fb) { const I = isl(); const y = I ? I.groundY(x, z) : null; return y === null || y === undefined ? fb : y; }
+  /** Beach spots in front of the town (in view of the fixed camera), optionally beside open water. */
+  function beachSpots(sea) {
+    const I = isl();
+    const list = I && I.spots && I.spots.beach ? I.spots.beach.filter(p => Math.abs(p[0]) < 6.2 && (!sea || inFree(p[0]))) : [];
+    return list.length ? list : [[-3.0, 5.6], [-1.0, 5.6], [3.6, 5.7], [4.9, 6.1]];
+  }
+  /** Sea spots near the island in view and clear of the docked ship. */
+  function seaSpots() {
+    const I = isl();
+    const d = I && I.dock ? I.dock : { x: 1.5, z: 9.2 };
+    const list = I && I.spots && I.spots.sea ? I.spots.sea.near.filter(p => Math.abs(p[0]) < 6.5 && p[1] < 11.5 && (Math.abs(p[0] - d.x) > 3.4 || p[1] > d.z + 2.2)) : [];
+    return list.length ? list : [[-4.0, 8.8], [-3.2, 10.4], [5.6, 9.4]];
+  }
 
   // ------------------------------------------------------------------ golden parrot
   E.parrot = function () {
@@ -75,7 +89,9 @@
     const mesh = sc.voxMesh('gparrot', () => VC.Models.parrot(true), { scale: 0.12, center: 'base' });
     const g = new THREE.Group(); g.add(mesh);
     const dir = Math.random() < 0.5 ? 1 : -1;
-    const z = U.rnd(-2.5, 2.5), y0 = U.rnd(3.2, 4.6);
+    // flies across the island above the roofs of the plot grid
+    const I = isl(), cell = I && I.plotCell;
+    const z = cell ? U.rnd(cell.z0 + 1.5, cell.z1 - 0.5) : U.rnd(-2.5, 2.5), y0 = U.rnd(3.2, 4.6);
     g.position.set(-9 * dir, y0, z);
     g.rotation.y = dir > 0 ? 0 : Math.PI;
     let t = 0;
@@ -111,7 +127,9 @@
     const sc = VC.Scene;
     const mesh = sc.voxMesh('bottle', () => VC.Models.bottle(), { scale: 0.12, center: 'base' });
     const g = new THREE.Group(); g.add(mesh);
-    const bx = freeX(), stopZ = shoreZ(bx) + 0.3;
+    // drifts in from the open sea beside the pier and stops at the water's edge of the beach
+    const bs = U.pick(beachSpots(true));
+    const bx = bs[0] + U.rnd(-0.3, 0.3), stopZ = shoreZ(bx) + 0.3;
     g.position.set(bx, 0.1, stopZ + 3.5);
     let t = 0;
     const a = track({
@@ -154,9 +172,10 @@
         return v;
       }, { scale: 0.1, center: 'base' });
       const g = new THREE.Group(); g.add(mesh);
-      const ang = U.rnd(-0.6, 0.6);
-      const cz = U.rnd(5.1, 5.7);
-      g.position.set(U.rnd(-4.5, 4.5), groundY(0, cz, 0.5), cz);
+      // scuttle along the beach in front of the promenade
+      const bs = U.pick(beachSpots(false));
+      const cz = Math.max(5.1, Math.min(5.8, bs[1] + U.rnd(-0.3, 0.2))), cx = Math.max(-4.5, Math.min(4.5, bs[0] + U.rnd(-0.6, 0.6)));
+      g.position.set(cx, groundY(cx, cz, 0.5), cz);
       let t = U.rnd(0, 5), dir = Math.random() < 0.5 ? 1 : -1;
       const a = track({
         obj: g, tapRadius: 48,
@@ -248,7 +267,7 @@
     caught('navy');
     const fortKills = Math.min(n - 1, Math.floor(s.buildings.fort / 10) + (s.buildings.fort > 0 ? 1 : 0));
     for (let i = 0; i < n; i++) {
-      const mesh = sc.voxMesh('navyboat', () => VC.Models.boat('#1f3e66'), { scale: 0.16, center: 'base' });
+      const mesh = sc.voxMesh('navyboatHD', () => VC.Models.boat('#1f3e66'), { scale: 0.085, center: 'base' });
       const g = new THREE.Group(); g.add(mesh);
       const x = i % 2 ? U.rnd(-4.6, -2.2) : U.rnd(5.0, 6.2);
       const landZ = shoreZ(x) + 0.2;
@@ -329,7 +348,9 @@
     const mesh = sc.voxMesh('chestHD', () => VC.Models.chest(), { scale: 0.125, center: 'base' });
     const g = new THREE.Group(); g.add(mesh);
     g.scale.setScalar(0.8);
-    const cx = Math.random() < 0.5 ? U.rnd(-4.4, -1.4) : U.rnd(3.4, 5.0), cz = shoreZ(cx) - 0.45;
+    // washed up on the beach in front of the town, just above the water's edge
+    const bs = U.pick(beachSpots(true));
+    const cx = bs[0] + U.rnd(-0.25, 0.25), cz = Math.min(bs[1], shoreZ(cx) - 0.45);
     g.position.set(cx, groundY(cx, cz, 0.25), cz);
     let t = 0;
     const a = track({
@@ -353,7 +374,8 @@
     const g = new THREE.Group();
     const buoy = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 0.5, 8), new THREE.MeshLambertMaterial({ color: 0xd63a3a }));
     g.add(buoy);
-    const bp = U.pick([[-4.0, 8.8], [-3.2, 10.4], [-4.6, 9.8], [5.6, 9.4], [5.3, 10.8]]);
+    // bobs in the open water near the shore, clear of the pier and the docked ship
+    const bp = U.pick(seaSpots());
     g.position.set(bp[0], 0, bp[1]);
     let t = 0;
     const a = track({

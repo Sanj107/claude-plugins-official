@@ -89,8 +89,10 @@
 
   /**
    * opts: { tier 0..7, style key or {..palette}, skin, seed, wreck } ->
-   * { vox (hull, masts, yards, deck props), glow (lanterns, lit windows), cloth: [{vox, fn}] (sails,
-   *   flags), rig: [[a, b], ...] rope segments, waterline, length, height, halfW, deckY, mastTops,
+   * { vox (hull, masts, deck props), glow (lanterns, lit windows), cloth: [{vox, fn}] (fore-and-aft
+   *   sails, flags), rigs: [{ pivot: [x, z], vox (yards), cloth }] (square sails of each mast, turned
+   *   by `brace` radians around the pivot when meshed), rig: [[a, b], ...] rope segments (already
+   *   braced), waterline, length, height, halfW, deckY, mastTops,
    *   scale (world units per voxel), cx / cz (hull centre), deck: { y, spots: [[x, z]], upper } }
    * All in voxels; the bow points to +x, the hull centre line is the voxel row z = 0.
    */
@@ -316,6 +318,15 @@
     // --- masts, tops, yards and sails; funnels on steam ships
     const masts = [], mastTops = [];
     const n = d.masts.length;
+    // Square sails are braced: each mast's yards and sails turn by BR around the mast (done on the
+    // mesh in Scene.shipMesh, so the cloth stays smooth), as on a ship sailing close to the wind.
+    const BR = opts.brace !== undefined ? opts.brace : (wreck ? 0.12 : -0.6);
+    const cB = Math.cos(BR), sB = Math.sin(BR);
+    const rigs = [];
+    /** Voxel-space point p of the rig of the mast at x = mx, turned with the braced yards. */
+    const braceP = (mx, p) => { const dx = p[0] - (mx + 0.5), dz = p[2] - 0.5; return [mx + 0.5 + dx * cB + dz * sB, p[1], 0.5 - dx * sB + dz * cB]; };
+    /** Cloth weights turned with the braced sail. */
+    const braceW = fn => (x, y, z, cx, cy, cz) => { const a = fn(x, y, z, cx, cy, cz); return [a[0] * cB + a[2] * sB, a[1], -a[0] * sB + a[2] * cB]; };
     d.masts.forEach((m, mi) => {
       const mx = Math.round(L * m);
       const main = n === 1 || mi === Math.floor(n / 2);
@@ -359,6 +370,8 @@
       masts.push({ mx, top: topY, h, base, main, nestY, thick });
       mastTops.push([mx, topY, 0]);
       if (!P.sail) return;
+      const R = { pivot: [mx + 0.5, 0.5], vox: new Vox(), cloth: [] };
+      rigs.push(R);
       // square sails, stacked between the yards
       const nSails = wreck ? 1 : tier === 0 ? 1 : tier <= 2 ? 2 : (mi === 0 && n > 2 ? 2 : 3);
       const y0 = base + 5;
@@ -379,8 +392,8 @@
         const B = wreck ? 0 : Math.min(2, 1 + Math.round(w / 8));
         for (let z = -w - 2; z <= w + 2; z++) {
           const c = W_(Math.abs(z) > w ? shade(yardC, 1.2) : yardC);
-          v.set(sx0, sy1 + 1, z, c);
-          if (si === 0) v.set(sx0, sy0 - 1, z, c);
+          R.vox.set(sx0, sy1 + 1, z, c);
+          if (si === 0) R.vox.set(sx0, sy0 - 1, z, c);
         }
         const sv = new Vox();
         const em = si === 0 && main && P.emblem && EMBLEMS[P.emblem] && !wreck ? EMBLEMS[P.emblem] : null;
@@ -407,7 +420,7 @@
           }
           sv.set(sx0 + 1 + belly, y, z, MT('cloth', shade(c, k)));
         }
-        cloth.push({ vox: sv, fn: sailWeight(sy0, sy1, w, 0.035 + 0.006 * w) });
+        R.cloth.push({ vox: sv, fn: braceW(sailWeight(sy0, sy1, w, 0.035 + 0.006 * w)) });
         masts[masts.length - 1].yards = (masts[masts.length - 1].yards || []).concat([[sy1 + 1, w + 2]]);
       });
     });
@@ -611,8 +624,9 @@
         // backstays and braces
         seg([m.mx + 0.5, m.top, 0.5], railPt(m.mx - 9, s));
         for (const [yy, yw] of m.yards || []) {
-          seg([m.mx + 2.5, yy + 0.5, 0.5 + s * (yw + 0.5)], railPt(m.mx - 7, s));
-          seg([m.mx + 2.5, yy + 0.5, 0.5 + s * (yw + 0.5)], [m.mx + 0.5, Math.min(m.top, yy + 6), 0.5]);
+          const arm = braceP(m.mx, [m.mx + (m.thick ? 2.5 : 1.5), yy + 0.5, 0.5 + s * (yw + 0.5)]);
+          seg(arm, railPt(m.mx - 7, s));
+          seg(arm, [m.mx + 0.5, Math.min(m.top, yy + 6), 0.5]);
         }
       }
       const topPt = [m.mx + 0.5, m.top + 0.5, 0.5];
@@ -634,7 +648,7 @@
     }
 
     return {
-      vox: v, glow, cloth, rig, waterline: wl, length: L, height: H, halfW: W / 2, deckY: H + 1, mastTops,
+      vox: v, glow, cloth, rig, rigs, brace: BR, waterline: wl, length: L, height: H, halfW: W / 2, deckY: H + 1, mastTops,
       scale: 0.125, cx: L / 2, cz: 0.5, ports,
       deck: { y: H + 1, spots, upper: { y: cTop + 1, spots: upper } },
     };
@@ -1045,11 +1059,20 @@
   const plaster = c => (x, y, z) => MT('plain', shade(c, 0.95 + 0.07 * hash(x, y, z)));
   const cobble = c => (x, y, z) => MT('cobble', shade(c, 0.82 + 0.28 * hash(x >> 1, z >> 1, y)));
   const rockC = c => (x, y, z) => MT('rock', shade(c, 0.8 + 0.3 * hash(x >> 1, y >> 1, z >> 1)));
-  /** Plaster with a timber frame: beams at y0 / y1 and posts every 4 voxels along each wall. */
+  /**
+   * Plaster with a timber frame (half-timbering): beams at y0 / y1, posts every 4 voxels along each
+   * wall and diagonal braces in alternating panels (windows drawn later simply cut through them).
+   */
   const timber = (c, beam, x0, x1, z0, z1, y0, y1) => (x, y, z) => {
     if (y === y0 || y === y1) return W(beam);
     const onZ = z === z0 || z === z1, onX = x === x0 || x === x1;
     if ((onZ && mod(x - x0, 4) === 0) || (onX && mod(z - z0, 4) === 0) || (onZ && onX)) return W(beam);
+    const h = Math.min(y1, y0 + 9) - y0 - 1;
+    if ((onZ || onX) && h >= 3 && y < y0 + 10) {
+      const along = onZ ? x - x0 : z - z0, pi = Math.floor(along / 4), pu = mod(along, 4);
+      const ud = 1 + Math.round(((y - y0 - 1) / Math.max(1, h - 1)) * 2);
+      if (pi % 3 !== 1 && (pi % 2 ? 4 - pu : pu) === ud) return W(shade(beam, 1.06));
+    }
     if (onZ && mod(x - x0, 4) === 2 && y === ((y0 + y1) >> 1)) return W(shade(beam, 1.1));
     return MT('plain', shade(c, 0.95 + 0.07 * hash(x, y, z)));
   };
@@ -1135,6 +1158,8 @@
     const ridge = MT(o.mat || 'roof', o.ridge || shade(o.c1, 0.7));
     const eave = MT('wood', o.eave || shade(o.c1, 0.6));
     const gc = typeof o.gable === 'function' ? o.gable : (() => MT('plank', o.gable || '#8a5a32'));
+    // bargeboards: the overhanging tiles at both gable ends are dark trim boards
+    const barge = over > 0 && o.barge !== false ? MT('wood', o.barge || shade(o.c1, 0.5)) : null;
     let k = 0, topY = y;
     for (;; k++) {
       const ba = b0 - over + k, bb = b1 + over - k;
@@ -1144,7 +1169,8 @@
         const yy = y + k * rise + r;
         topY = yy;
         for (let a = a0 - over; a <= a1 + over; a++) {
-          const t = isRidge ? ridge : (k === 0 && r === 0 && over > 0 ? eave : tile(k * rise + r, a));
+          const end = barge && (a === a0 - over || a === a1 + over);
+          const t = isRidge ? ridge : end ? barge : (k === 0 && r === 0 && over > 0 ? eave : tile(k * rise + r, a));
           put(a, yy, ba, t); put(a, yy, bb, t);
           if (a >= a0 && a <= a1) for (let b = ba + 1; b < bb; b++) put(a, yy, b, (a === a0 || a === a1) ? (along ? gc(a, yy, b) : gc(b, yy, a)) : tile(0, a));
         }
@@ -1179,6 +1205,7 @@
     P.v.set(x, y1 + 1, z, MT('plain', '#1a1a1a')); P.v.set(x + 1, y1 + 1, z + 1, MT('plain', '#1a1a1a'));
     P.v.set(x + 1, y1 + 1, z, MT('plain', '#222')); P.v.set(x, y1 + 1, z + 1, MT('plain', '#222'));
     P.smoke.push([x + 1, y1 + 2, z + 1]);
+    (P.chimneys || (P.chimneys = [])).push([x, z]);
   }
   /** Barrel 3x3 (or 2x2 when small) with iron hoops. */
   function barrel(P, x, y, z, c, small) {
@@ -1770,7 +1797,9 @@
    * stage 1 adds lanterns at the front corners, stage 2 also a pennant on the highest point.
    * Everything is clipped to the plot cell.
    */
-  const NO_PENNANT = { statue: 1, light: 1, temple: 1, fort: 1, market: 1 };
+  const NO_PENNANT = { statue: 1, light: 1, temple: 1, fort: 1, market: 1, grove: 1, obs: 1, bank: 1 };
+  const MATS_ID = {};
+  VC.Voxel.MATS.forEach((n, i) => { MATS_ID[n] = i; });
   function buildingParts(id, stage) {
     const P = parts();
     (BUILD[id] || BUILD.hut)(P);
@@ -1782,7 +1811,13 @@
     }
     if (stage >= 2 && !NO_PENNANT[id]) {
       let best = null;
-      P.v.each((x, y, z) => { if (x >= -6 && x <= 5 && z >= -6 && z <= 5 && (!best || y > best[1])) best = [x, y, z]; });
+      // the highest point of the roof, but never a chimney (smoke) or a pole
+      const nearChimney = (x, z) => (P.chimneys || []).some(([cx, cz]) => x >= cx - 2 && x <= cx + 3 && z >= cz - 2 && z <= cz + 3);
+      P.v.each((x, y, z, c) => {
+        if (x < -6 || x > 5 || z < -6 || z > 5 || nearChimney(x, z) || (best && y <= best[1])) return;
+        const m = VC.Voxel.matOf(c);
+        if (m !== MATS_ID.cloth && m !== MATS_ID.glass) best = [x, y, z];
+      });
       if (best) {
         const [x, y, z] = best;
         for (let k = 1; k <= 6; k++) P.v.set(x, y + k, z, W('#5a3a1e'));
@@ -1841,13 +1876,36 @@
     v.set(0, 1, 2, MT('cloth', '#f2ead6'));
     return v;
   }
+  /**
+   * Navy longboat with a crew of marines (bow toward +x; meant for ~0.1 units per voxel): planked
+   * hull with a white wale, thwarts, oars, a little Crown ensign at the stern.
+   */
   function boat(color) {
     const v = new Vox();
-    v.box(-4, 0, -1, 4, 1, 1, MT('plank', color || '#1f3e66'));
-    v.box(-3, 0, -2, 3, 1, 2, MT('plank', color || '#1f3e66'));
-    v.box(-3, 1, -1, 3, 1, 1, MT('plank', '#8a5a32'));
-    v.box(-2, 2, -1, -2, 3, -1, MT('cloth', '#e9e3d2')); v.box(0, 2, 1, 0, 3, 1, MT('cloth', '#e9e3d2')); v.box(2, 2, -1, 2, 3, -1, MT('cloth', '#e9e3d2'));
-    v.set(-2, 4, -1, MT('cloth', '#1d4f91')); v.set(0, 4, 1, MT('cloth', '#1d4f91')); v.set(2, 4, -1, MT('cloth', '#1d4f91'));
+    const c = color || '#1f3e66';
+    for (let x = -8; x <= 8; x++) {
+      const t = Math.abs(x) / 8.6, w = Math.max(0, Math.round(3.2 * Math.sqrt(1 - t * t)));
+      for (let z = -w; z <= w; z++) {
+        v.set(x, 0, z, MT('plank', shade(c, 0.7)));
+        const side = Math.abs(z) === w || Math.abs(x) === 8;
+        if (side) { v.set(x, 1, z, MT('plank', shade(c, x & 1 ? 1 : 0.9))); v.set(x, 2, z, MT('wood', '#e9e3d2')); }
+        else v.set(x, 1, z, MT('plank', mod(x, 3) === 0 ? '#6b4423' : '#8a5a32'));
+      }
+    }
+    v.set(9, 2, 0, MT('wood', '#e9e3d2')); v.set(9, 3, 0, MT('wood', '#e9e3d2'));
+    // marines: blue coats with white cross belts, faces, black hats, muskets
+    for (const [x, z] of [[-4, -1], [0, 1], [4, -1]]) {
+      v.box(x, 2, z, x + 1, 4, z + 1, MT('cloth', '#1d4f91'));
+      v.set(x, 3, z + 1, MT('cloth', '#f2efe6')); v.set(x + 1, 4, z, MT('cloth', '#f2efe6'));
+      v.box(x, 5, z, x + 1, 5, z + 1, MT('plain', '#f2c8a0'));
+      v.box(x - 1, 6, z, x + 2, 6, z + 1, MT('cloth', '#1a1a1a')); v.box(x, 7, z, x + 1, 7, z + 1, MT('cloth', '#1a1a1a'));
+      v.set(x + 2, 6, z, MT('gold', '#f0c03a'));
+      v.line(x + 2, 3, z + 2, x + 4, 8, z + 2, MT('metal', '#3a3a3e'));
+      // oars over the side
+      v.line(x, 3, z < 0 ? -3 : 3, x - 2, 0, z < 0 ? -7 : 7, MT('wood', '#c8a26a'));
+    }
+    v.box(-8, 3, 0, -8, 7, 0, MT('wood', '#5a3a1e'));
+    for (let i = 1; i <= 3; i++) for (let j = 0; j < 2; j++) v.set(-8 - i, 7 - j, 0, MT('cloth', i === 2 && j === 0 ? '#f0c03a' : '#1d4f91'));
     return v;
   }
   function cloudPuff(seed) {

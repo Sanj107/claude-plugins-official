@@ -209,7 +209,19 @@
       const mo = { scale: sc, center };
       const hull = VC.Voxel.mesh(info.vox, { scale: sc, center, occluders: info.glow });
       const glow = info.glow.count ? VC.Voxel.mesh(info.glow, { scale: sc, center, occluders: info.vox }) : null;
-      const cloth = info.cloth.length ? this.mergeGeos(info.cloth.map(c => ({ geo: VC.Voxel.mesh(c.vox, Object.assign({ attr: { name: 'cloth', size: 3, fn: c.fn }, occluders: info.vox }, mo)) }))) : null;
+      // sails and flags share the cloth shader; each mast's yards and square sails are meshed in
+      // place and turned around the mast (braced), so the cloth stays smooth
+      const clothItems = info.cloth.map(c => ({ geo: VC.Voxel.mesh(c.vox, Object.assign({ attr: { name: 'cloth', size: 3, fn: c.fn }, occluders: info.vox }, mo)) }));
+      const still = () => [0, 0, 0];
+      for (const r of info.rigs || []) {
+        const px = (r.pivot[0] - center[0]) * sc, pz = (r.pivot[1] - center[2]) * sc;
+        const mtx = new THREE.Matrix4().makeTranslation(px, 0, pz)
+          .multiply(new THREE.Matrix4().makeRotationY(info.brace || 0))
+          .multiply(new THREE.Matrix4().makeTranslation(-px, 0, -pz));
+        clothItems.push({ geo: VC.Voxel.mesh(r.vox, Object.assign({ attr: { name: 'cloth', size: 3, fn: still } }, mo)), matrix: mtx });
+        for (const c of r.cloth) clothItems.push({ geo: VC.Voxel.mesh(c.vox, Object.assign({ attr: { name: 'cloth', size: 3, fn: c.fn }, occluders: r.vox }, mo)), matrix: mtx });
+      }
+      const cloth = clothItems.length ? this.mergeGeos(clothItems) : null;
       let rig = null;
       if (info.rig.length) {
         const pts = new Float32Array(info.rig.length * 6);
