@@ -11,7 +11,9 @@
 //   - a village around the grid, a jungle belt, a hill with a waterfall, pond and river at the
 //     back, a rocky cape on the left arm and a lagoon in the right arm.
 // Terrain columns are 0.25 units; every model on the island is built at 0.125 units per voxel and
-// tagged with surface materials (VC.Voxel.mat) for the textured renderer.
+// tagged with surface materials (VC.Voxel.mat) for the textured renderer. The terrain
+// (Scene.terrain, a group) and the merged static decor are split into 7x7-unit chunks so the
+// fixed camera frustum-culls what it does not see; all geometry is cached across rebuilds.
 //
 // API for the people / ambient-life modules:
 //   VC.Scene.island = {
