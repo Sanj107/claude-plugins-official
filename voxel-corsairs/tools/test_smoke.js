@@ -85,7 +85,10 @@ const OUT = process.argv[3] || require('os').tmpdir();
     await page.waitForTimeout(120);
     if (i === 20) await shot('05_battle');
   }
-  await page.waitForTimeout(2600);
+  // the battle-end sequence runs on game time (dt is capped per frame), so on slow software GL
+  // wait for the result modal instead of a fixed delay
+  for (let i = 0; i < 60 && await page.evaluate(() => !!VC.Battle.active && !VC.UI.hasModal()); i++) await page.waitForTimeout(250);
+  await page.waitForTimeout(1200);
   await shot('06_battle_end');
   await closeModals(); await page.waitForTimeout(600); await skipDialogue(); await closeModals(); await page.waitForTimeout(500); await skipDialogue();
   const st = await page.evaluate(() => ({ idx: VC.Game.s.story.idx, phase: VC.Game.s.story.phase, gold: VC.Game.s.gold, lvl: VC.Game.s.level, unlocked: VC.Game.s.unlocked }));
@@ -104,7 +107,7 @@ const OUT = process.argv[3] || require('os').tmpdir();
   }
   await page.evaluate(() => VC.UI.closePanel());
   // Settings modal
-  await closeModals();
+  await closeModals(); await skipDialogue(); await closeModals();
   await page.click('#btn-settings');
   await page.waitForTimeout(300);
   await shot('settings');

@@ -272,6 +272,58 @@
     ];
   }
 
+  /**
+   * Splits an indexed voxel geometry (4 vertices + 6 indices per face, as the mesher and
+   * mergeGeos write them) into square world chunks by face centre, so the renderer can frustum-
+   * cull what the fixed camera does not see (in portrait about two thirds of the island lies
+   * outside the view). Returns the non-empty chunk geometries.
+   */
+  const CHUNK = 7;
+  function splitChunks(geo) {
+    const idx = geo.index.array, pos = geo.attributes.position.array, nv = geo.attributes.position.count;
+    const nq = Math.floor(idx.length / 6);
+    const cx0 = -4, cz0 = -4, ncx = 8, ncz = 8;
+    const vch = new Int16Array(nv).fill(-1), qch = new Int16Array(nq);
+    for (let q = 0; q < nq; q++) {
+      let x = 0, z = 0;
+      for (let j = 0; j < 6; j++) { const v = idx[q * 6 + j]; x += pos[v * 3]; z += pos[v * 3 + 2]; }
+      const i = Math.max(0, Math.min(ncx - 1, Math.floor(x / 6 / CHUNK) - cx0)), k = Math.max(0, Math.min(ncz - 1, Math.floor(z / 6 / CHUNK) - cz0));
+      const c = i * ncz + k;
+      qch[q] = c;
+      for (let j = 0; j < 6; j++) vch[idx[q * 6 + j]] = c;
+    }
+    const nC = ncx * ncz, vcount = new Int32Array(nC), qcount = new Int32Array(nC), remap = new Int32Array(nv);
+    for (let v = 0; v < nv; v++) if (vch[v] >= 0) remap[v] = vcount[vch[v]]++;
+    for (let q = 0; q < nq; q++) qcount[qch[q]]++;
+    const names = Object.keys(geo.attributes);
+    const G = [], A = [], I = [], io = new Int32Array(nC);
+    for (let c = 0; c < nC; c++) {
+      if (!qcount[c]) continue;
+      G[c] = new THREE.BufferGeometry();
+      A[c] = names.map(n => new Float32Array(vcount[c] * geo.attributes[n].itemSize));
+      I[c] = vcount[c] > 65535 ? new Uint32Array(qcount[c] * 6) : new Uint16Array(qcount[c] * 6);
+    }
+    names.forEach((n, a) => {
+      const src = geo.attributes[n].array, sz = geo.attributes[n].itemSize;
+      for (let v = 0; v < nv; v++) {
+        const c = vch[v];
+        if (c < 0) continue;
+        const dst = A[c][a], o = remap[v] * sz, s = v * sz;
+        for (let e = 0; e < sz; e++) dst[o + e] = src[s + e];
+      }
+    });
+    for (let q = 0; q < nq; q++) { const c = qch[q], ix = I[c]; for (let j = 0; j < 6; j++) ix[io[c]++] = remap[idx[q * 6 + j]]; }
+    const out = [];
+    for (let c = 0; c < nC; c++) {
+      if (!G[c]) continue;
+      names.forEach((n, a) => G[c].setAttribute(n, new THREE.BufferAttribute(A[c][a], geo.attributes[n].itemSize)));
+      G[c].setIndex(new THREE.BufferAttribute(I[c], 1));
+      G[c].computeBoundingSphere();
+      out.push(G[c]);
+    }
+    return out;
+  }
+
   // ------------------------------------------------------------------ decor
   /** Cached meshes of a part set (or a Vox) at a given voxel size. */
   const partCache = new Map();
@@ -470,14 +522,21 @@
     const ter = this._ter || (this._ter = buildTerrain());
     this.ter = ter;
     // terrain mesh (column (i,y,k) spans [i*T, (i+1)*T] etc.)
-    const tgeo = this.geoCache.get('terrain3') || VC.Voxel.heightMesh({
+    // (split into chunks so the parts outside the camera view are culled)
+    const tgeos = this.geoCache.get('terrain3') || splitChunks(VC.Voxel.heightMesh({
       i0: IX0, k0: IZ0, ni: NX, nk: NZ, yMin: -2,
       height: (i, k) => { const h = ter.H[ter.at(i, k)]; return h === WATER ? -999 : h; }, color: ter.colorAt,
-    }, { scale: T, noise: 0.06 });
-    this.geoCache.set('terrain3', tgeo);
-    const terrain = new THREE.Mesh(tgeo, VC.Voxel.material());
-    terrain.userData.terrain = true;
+    }, { scale: T, noise: 0.06 }));
+    this.geoCache.set('terrain3', tgeos);
+    const terrain = new THREE.Group();
     terrain.name = 'terrain';
+    terrain.userData.terrain = true;
+    for (const tg of tgeos) {
+      const tm = new THREE.Mesh(tg, VC.Voxel.material());
+      tm.userData.terrain = true;
+      tm.name = 'terrain';
+      terrain.add(tm);
+    }
     g.add(terrain);
     this.terrain = terrain;
 
@@ -529,12 +588,12 @@
       for (let x = fx0 - 3; x <= fx1 + 3; x++) for (let z = fz + 1; z <= fz + 4; z++) if (M.kit.hash(x, 1, z) < 0.6) fall.set(x, 4, z, MT('water', '#ffffff'));
       const fallGeo = VC.Voxel.mesh(fall, { scale: HD, center: [0, 0, 0], skipBottom: true, noise: 0.02 });
       this._decor = {
-        main: this.mergeGeos(main), glow: this.mergeGeos(glow), cloth: cloth.length ? this.mergeGeos(cloth) : null, smoke, fallGeo,
+        main: splitChunks(this.mergeGeos(main)), glow: this.mergeGeos(glow), cloth: cloth.length ? this.mergeGeos(cloth) : null, smoke, fallGeo,
         mill: partGeo('millSails', () => M.windmill().sails, HD, [0.5, 0.5, 0.5]),
       };
     }
     const D = this._decor;
-    const dm = new THREE.Mesh(D.main, VC.Voxel.material()); dm.name = 'decor'; g.add(dm);
+    for (const dgeo of D.main) { const dm = new THREE.Mesh(dgeo, VC.Voxel.material()); dm.name = 'decor'; g.add(dm); }
     const dg = new THREE.Mesh(D.glow, this.glowMaterial()); dg.name = 'decorGlow'; g.add(dg);
     if (D.cloth) {
       const cm = new THREE.Mesh(D.cloth, this.clothMaterial(false));
