@@ -173,12 +173,19 @@ void main() {
   float kT = (1.0 - smoothstep(0.66, 1.4, fw)) * uVxDetail;
   float kL = (1.0 - smoothstep(1.6, 3.2, fw)) * uVxDetail;
   float t1 = vxH2(ti + floor(vW.y * 8.0 + 0.5) * 17.0);
+#ifdef VX_LOW
+  // low graphics: block mosaic only (no ripples, glints or cloud shadows)
+  float glint = 0.0;
+  vec3 col = vCol * (1.0 + (t1 - 0.5) * 0.08 * kT);
+  float sh = 0.0;
+#else
   // ripple rows drifting across each block and a few twinkling glints
   float rip = vxSeam(tc.y + floor(sin(tc.x * 0.21 + uVxTime * 1.3) * 1.5) + floor(uVxTime * 2.0), 9.0, fw) * (1.0 - vSide);
   float gl = vxH2(ti * 0.73 + floor(uVxTime * 1.5 + t1 * 4.0));
   float glint = gl > 0.994 ? (1.0 - vSide) : 0.0;
   vec3 col = vCol * (1.0 + (t1 - 0.5) * 0.08 * kT + rip * 0.07 * kL);
   float sh = vxCloudShadow(vW);
+#endif
   float dif = max(dot(n, uSunDir), 0.0);
   vec3 amb = mix(uGroundCol, uSkyCol, n.y * 0.5 + 0.5);
   // a touch brighter by night so the sea still reads as water under the moon
@@ -413,7 +420,14 @@ void main() {
     this.battleWater.name = 'battleWater';
     this.battleWater.visible = false;
     this.scene.add(this.battleWater);
-    this.on('quality', function () { this.rebuildWater(); this.buildClouds(); });
+    this.on('quality', function (level) {
+      const low = level === 'low', d = this.waterMat.defines || (this.waterMat.defines = {});
+      if (!!d.VX_LOW !== low) {
+        if (low) d.VX_LOW = 1; else delete d.VX_LOW;
+        this.waterMat.needsUpdate = true;
+      }
+      this.rebuildWater(); this.buildClouds();
+    });
     this.on('battleStart', function () { this.rebuildWater(); this.battleWater.visible = true; });
     this.on('battleEnd', function () { this.battleWater.visible = false; });
   };

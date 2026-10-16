@@ -122,6 +122,7 @@
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.pr));
     if (this.w) this.resize();
     VC.Voxel.uniforms.uVxDetail.value = Q.detail;
+    VC.Voxel.setLowShader(level === 'low');
     this.fire('quality', level, Q);
   };
 

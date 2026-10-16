@@ -463,6 +463,15 @@ vec3 vxTexture(vec3 c, inout vec3 em) {
   float kL = (1.0 - smoothstep(1.6, 3.2, fw)) * min(1.0, uVxDetail * 1.4);
   float plane = dot(p, abs(nrm)) * 1.37 + dir * 3.1;
   float n = vxH3(vec3(ti, plane));
+#ifdef VX_LOW
+  // low graphics: one hash per texel plus the courses of planks, stone, bricks, cobble and roofs;
+  // windows still light up at night and lava still glows
+  float mL = (n - 0.5) * 0.10 * kT;
+  if (mat > 1.5 && mat < 6.5) mL -= 0.24 * vxSeam(tc.y, (mat > 2.5 && mat < 3.5) ? 8.0 : ((mat > 4.5 && mat < 5.5) ? 5.0 : 4.0), fw) * kL;
+  if (mat > 14.5 && mat < 15.5) em += vec3(1.0, 0.78, 0.42) * uVxNight * 0.65;
+  if (mat > 17.5 && mat < 18.5) em += vec3(0.35, 0.14, 0.03);
+  return c * (1.0 + mL);
+#else
   float ch = vxH3(cell + vec3(0.31, 0.17, 0.73));
   float m = 0.0;
   vec3 col = c;
@@ -603,6 +612,7 @@ vec3 vxTexture(vec3 c, inout vec3 em) {
     m -= 0.05 * max(vxSeam(lc.x * tpv, tpv, fw), vxSeam(lc.y * tpv, tpv, fw)) * kL;
   }
   return col * (1.0 + m);
+#endif
 }
 `;
 
@@ -622,7 +632,7 @@ vec3 vxTexture(vec3 c, inout vec3 em) {
   vVxW = (modelMatrix * vec4(transformed, 1.0)).xyz;
 #endif`);
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\n' + GLSL_COMMON + GLSL_TEX)
+      .replace('#include <common>', '#include <common>\n' + (lowShader ? '#define VX_LOW 1\n' : '') + GLSL_COMMON + GLSL_TEX)
       .replace('#include <color_fragment>', `#include <color_fragment>
   vec3 vxEm = vec3(0.0);
   vec3 vxBase = diffuseColor.rgb;
@@ -631,9 +641,11 @@ vec3 vxTexture(vec3 c, inout vec3 em) {
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' +
         (variant === 'glow' ? '  totalEmissiveRadiance *= vColor * vxRatio;\n' : '') + '  totalEmissiveRadiance += vxEm;')
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+#ifndef VX_LOW
   float vxSh = vxCloudShadow(vVxW);
   reflectedLight.directDiffuse *= 1.0 - 0.8 * vxSh;
-  reflectedLight.indirectDiffuse *= 1.0 - 0.12 * vxSh;`);
+  reflectedLight.indirectDiffuse *= 1.0 - 0.12 * vxSh;
+#endif`);
   }
 
   /**
@@ -650,8 +662,24 @@ vec3 vxTexture(vec3 c, inout vec3 em) {
       patchShader(sh, variant);
     };
     const key = 'vx-' + (variant || 'std') + (own ? ':' + own.toString() : '');
-    m.customProgramCacheKey = () => key;
+    m.customProgramCacheKey = () => key + (lowShader ? ':low' : '');
+    registry.add(typeof WeakRef === 'function' ? new WeakRef(m) : m);
     return m;
+  }
+
+  // Low graphics compile a cheaper variant of the texture shader (see VX_LOW): every textured
+  // material is recompiled when the level crosses low <-> medium/high.
+  let lowShader = false;
+  const registry = new Set();
+  function setLowShader(on) {
+    on = !!on;
+    if (on === lowShader) return;
+    lowShader = on;
+    for (const r of registry) {
+      const m = r.deref ? r.deref() : r;
+      if (m) m.needsUpdate = true;
+      else registry.delete(r);
+    }
   }
 
   let sharedMat = null;
@@ -669,7 +697,7 @@ vec3 vxTexture(vec3 c, inout vec3 em) {
   }
 
   VC.Voxel = {
-    Vox, mesh, heightMesh, toMesh, material, texturize, patchShader, uniforms: U, GLSL_COMMON, TEXELS, texelsFor, stats,
+    Vox, mesh, heightMesh, toMesh, material, texturize, patchShader, setLowShader, uniforms: U, GLSL_COMMON, TEXELS, texelsFor, stats,
     hexToRgb, toInt, MATS, mat, matOf,
   };
 })(window.VC);
