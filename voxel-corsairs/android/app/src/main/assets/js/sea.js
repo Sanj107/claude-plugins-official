@@ -48,8 +48,12 @@
     return (L.land[j] ? 0 : L.dL[j] * L.cell) + out;
   };
 
-  /** Water surface height at x,z now: the same quantized level the water blocks show. */
+  /**
+   * Water surface height at x,z now: the top of the (finest) water column there, i.e. the same
+   * quantized level the water blocks show, so ships and props sit in the water.
+   */
   Scene.waveAt = function (x, z) {
+    x = (Math.floor(x / G) + 0.5) * G; z = (Math.floor(z / G) + 0.5) * G;
     const amp = AMP * (this.stormy ? 2.2 : 1) * damp(this.shoreDist(x, z)) * farK(x, z);
     return quantize(waveRaw(x, z, this.t) * amp);
   };
