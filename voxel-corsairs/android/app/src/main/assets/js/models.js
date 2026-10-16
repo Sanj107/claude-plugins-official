@@ -851,7 +851,7 @@
       const ang = a / n * Math.PI * 2 + rnd() * 0.5;
       const len = Math.min(R - 0.5, 6 + rnd() * 3);
       const ca = Math.cos(ang), sa = Math.sin(ang);
-      const droop = 6 + rnd() * 3;
+      const droop = len * (0.75 + rnd() * 0.45);
       for (let k = 1; k <= len; k++) {
         const t = k / len;
         const fx = tx + ca * k, fz = tz + sa * k, fy = h + 1 + 2.2 * t - droop * t * t;
@@ -1363,6 +1363,11 @@
         v.set(bx + 1, 2, bz, W('#6b4a2e')); v.set(bx, 2, bz + 1, MT('leaf', '#ffd23f'));
       }
       v.box(5, 0, 1, 5, 4, 1, W('#6b4423')); v.box(4, 4, 1, 6, 5, 1, MT('plank', '#c8a26a')); v.set(5, 5, 2, MT('plain', '#3f8f3a'));
+      // tall grass and ferns between the trunks
+      for (const [x, z] of [[-6, 0], [-5, 5], [0, -6], [5, -6], [6, -2], [-1, -1], [4, 0]]) {
+        for (let y = 0; y <= 1 + ((x + z) & 1); y++) v.set(x, y, z, MT('leaf', y ? '#5cb84f' : '#3f8f3a'));
+        v.set(x + 1, 0, z, MT('leaf', '#4fa64a')); v.set(x, 0, z + 1, MT('leaf', '#4fa64a'));
+      }
       v.line(-6, 0, -1, -5, 9, -3, W('#8a6238'));
       for (let y = 2; y <= 8; y += 2) v.set(-6 + (y > 5 ? 1 : 0), y, -1 - Math.round(y / 4.5), W('#a07a4a'));
     },
@@ -1726,19 +1731,36 @@
       for (const [x, z] of [[-6, -6], [5, -6], [-6, 5], [5, 5]]) { v.box(x, 1, z, x + 1, 1, z + 1, MT('grass', '#4fa64a')); v.set(x, 2, z, MT('leaf', '#ff6fa8')); v.set(x + 1, 2, z + 1, MT('leaf', '#ffd23f')); }
       block(P, -4, 1, -4, 3, 2, 3, stone('#9a9a96'));
       block(P, -3, 3, -3, 2, 6, 2, stone('#8a8a86'));
+      // the captain in bronze (with a little green patina): boots, long coat, belt, sash, beard,
+      // tricorn with a feather, a spyglass in one hand and the cutlass raised in the other
+      const br = (c) => (x, y, z) => MT('metal', hash(x, y, z) < 0.12 ? '#6f8a6a' : shade(c, 0.94 + 0.12 * hash(z, x, y)));
+      const bz = br('#8a6a3a'), bl = br('#a8844a'), dk = br('#6e5432');
+      v.box(-3, 6, -3, 2, 6, 2, MT('stone', '#7a7a76'));
+      // a treasure chest under one boot
+      block(P, 0, 7, -1, 2, 8, 1, br('#7a5a32')); v.box(0, 9, -1, 2, 9, 1, MT('gold', '#d8a830'));
+      block(P, -2, 7, -1, -1, 8, 0, dk); block(P, 0, 10, -1, 1, 10, 0, dk);
+      block(P, -2, 9, -1, -1, 12, 0, bz); block(P, 0, 11, -1, 1, 12, 0, bz);
+      // coat flaring toward the hem, open at the front
+      block(P, -3, 12, -2, 2, 13, 1, (x, y, z) => (z === 1 && (x === -1 || x === 0) ? dk(x, y, z) : bz(x, y, z)));
+      block(P, -3, 14, -2, 2, 18, 1, (x, y, z) => (y === 15 ? MT('metal', '#c8a050') : z === 1 && (x === -1 || x === 0) ? bl(x, y, z) : bz(x, y, z)));
+      v.set(-1, 15, 2, MT('gold', '#f0c03a'));
+      for (let y = 16; y <= 18; y++) v.set(1 - (y - 16), y, 2, MT('metal', '#7a2a20'));
+      block(P, -4, 18, -2, 3, 18, 1, bz);
+      // left arm down with a spyglass, right arm raised with the cutlass
+      block(P, -5, 14, -1, -4, 18, 0, bz); v.box(-5, 12, 0, -5, 13, 0, MT('metal', '#c8a050')); v.set(-5, 11, 0, MT('metal', '#b8862a'));
+      block(P, 3, 18, -1, 4, 22, 0, bz); v.set(4, 23, 0, bl);
+      for (let k = 0; k <= 7; k++) v.set(4 + Math.round(k * 0.3), 24 + k, 0, MT('metal', k === 0 ? '#c8a050' : '#d8d8d2'));
+      v.box(3, 24, -1, 5, 24, 1, MT('metal', '#c8a050'));
+      // head, beard, eyes
+      block(P, -2, 19, -2, 1, 22, 1, bl);
+      v.box(-1, 19, 2, 0, 19, 2, dk); v.set(-2, 20, 2, bl); v.set(1, 20, 2, bl); v.set(-1, 20, 2, bz); v.set(0, 20, 2, bz);
+      v.set(-2, 21, 2, MT('metal', '#3a2a18')); v.set(1, 21, 2, MT('metal', '#3a2a18'));
+      // tricorn: wide brim with turned-up corners, crown, feather
+      block(P, -4, 23, -3, 3, 23, 2, dk);
+      for (const [x, z] of [[-4, -3], [3, -3], [-4, 2], [3, 2], [-1, 2], [0, 2]]) v.set(x, 24, z, dk);
+      block(P, -2, 24, -2, 1, 25, 1, dk);
+      v.line(-3, 24, -2, -5, 28, -3, MT('cloth', '#e8e0d0'));
       v.box(-1, 4, 3, 0, 5, 3, MT('gold', '#f0c03a'));
-      // the captain in bronze: boots, coat, sash, head, tricorn, raised cutlass
-      const bz = MT('metal', '#8a6a3a'), bl = MT('metal', '#a8844a'), dk = MT('metal', '#5a4428');
-      v.box(-2, 7, -1, -1, 10, 0, dk); v.box(0, 7, -1, 1, 10, 0, dk);
-      block(P, -3, 11, -2, 2, 17, 1, (x, y) => (y === 13 ? MT('metal', '#c8a050') : x === -1 || x === 0 ? bl : bz));
-      v.box(-3, 11, 2, -2, 14, 2, bz); v.box(1, 11, 2, 2, 14, 2, bz);
-      v.box(-4, 13, -1, -4, 16, 0, bz);
-      v.box(3, 16, -1, 3, 19, 0, bz);
-      v.line(3, 20, 0, 5, 26, 0, MT('metal', '#c8c8c2')); v.set(3, 19, 1, MT('metal', '#c8a050'));
-      block(P, -2, 18, -2, 1, 21, 1, bl);
-      v.set(-1, 20, 2, dk); v.set(0, 20, 2, dk);
-      block(P, -4, 22, -3, 3, 22, 2, dk); block(P, -2, 23, -2, 1, 24, 1, dk); v.box(-4, 23, -3, -4, 23, 2, dk); v.box(3, 23, -3, 3, 23, 2, dk);
-      v.box(-3, 7, 1, 2, 8, 2, MT('plank', '#8a5a32')); v.box(-3, 8, 1, 2, 8, 2, MT('gold', '#f0c03a'));
       for (const [x, z] of [[-7, -7], [6, -7], [-7, 6], [6, 6]]) lamp(P, x, 1, z, 4);
     },
   };
@@ -1748,6 +1770,7 @@
    * stage 1 adds lanterns at the front corners, stage 2 also a pennant on the highest point.
    * Everything is clipped to the plot cell.
    */
+  const NO_PENNANT = { statue: 1, light: 1, temple: 1, fort: 1, market: 1 };
   function buildingParts(id, stage) {
     const P = parts();
     (BUILD[id] || BUILD.hut)(P);
@@ -1757,7 +1780,7 @@
       for (let y = 0; y <= 8; y++) if (P.v.has(x, y, 7) || P.v.has(x, y, 6)) { free = false; break; }
       if (free) lamp(P, x, 0, 7, 5);
     }
-    if (stage >= 2) {
+    if (stage >= 2 && !NO_PENNANT[id]) {
       let best = null;
       P.v.each((x, y, z) => { if (x >= -6 && x <= 5 && z >= -6 && z <= 5 && (!best || y > best[1])) best = [x, y, z]; });
       if (best) {
