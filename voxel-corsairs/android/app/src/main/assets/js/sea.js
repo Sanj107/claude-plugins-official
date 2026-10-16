@@ -18,7 +18,7 @@
   // ------------------------------------------------------------------ waves
   const STEP = 0.125;     // height quantum of the water blocks (one detail voxel)
   const LEVEL0 = 0.03;    // rest level of the water tops (just above the sea-floor sand at y = 0)
-  const RAMP = 0.16;      // part of a step spent rising: 0 = hard steps, 0.5 = smooth waves
+  const RAMP = 0.2;       // part of a step spent rising: 0 = hard steps, 0.5 = smooth waves
   const AMP = 0.68;       // calm sea: about ±2 steps out at sea, ±1 in the harbour
   const G = 0.25;         // finest column (one terrain voxel)
   const FAR_SHORE = 60;   // "distance to land" used out at sea
@@ -57,7 +57,7 @@
 #define LEVEL0 ${LEVEL0.toFixed(4)}
 #define RAMP ${RAMP.toFixed(4)}
 attribute vec4 aCol;   // column centre (x, z) and neighbour centre (x, z), 1/8 world units
-attribute vec4 aVtx;   // corner (x, z) 1/8 units; kind + 8 * shore (1/4 units); neighbour shore
+attribute vec4 aVtx;   // corner (x, z) 1/8 units; kind + 8 * shore (1/4 units); neighbour shore + 4096 * size code
 uniform float uTime;
 uniform float uAmp;
 uniform float uFar;
@@ -78,20 +78,24 @@ float wLevel(float raw, float shore) {
   float f = fract(u);
   return LEVEL0 + STEP * (floor(u) + smoothstep(0.5 - RAMP, 0.5 + RAMP, f));
 }
+float vSize;
 vec3 wColor(vec2 c, float s, float lv, float raw) {
   // colours as lit at noon divide by ~1.4 (sky + sun light on a top face)
   vec3 shallow = vec3(0.34, 0.68, 0.64);
   vec3 mid = vec3(0.12, 0.47, 0.60);
   vec3 deep = vec3(0.05, 0.27, 0.52);
   vec3 col = s < 1.6 ? mix(shallow, mid, s / 1.6) : mix(mid, deep, clamp((s - 1.6) / 7.0, 0.0, 1.0));
-  col = mix(col, uMix.rgb, uMix.a) * uTint;
+  // region tint: take its hue, keep the palette's brightness
+  vec3 tint = uMix.rgb * (dot(col, vec3(0.3, 0.59, 0.11)) / max(dot(uMix.rgb, vec3(0.3, 0.59, 0.11)), 0.01));
+  col = mix(col, tint, uMix.a) * uTint;
   float h = vxH2(floor(c * 4.0) + 0.5);
   col *= (1.0 + 0.07 * (lv - LEVEL0) / STEP) * (0.95 + 0.10 * h);
   // foam: white blocks on the highest crests out at sea and surf pulsing along the shore
-  float crest = smoothstep(0.66, 0.8, raw / 0.365) * step(0.72, h) * smoothstep(1.5, 4.0, s);
-  float surfK = 1.0 - smoothstep(0.3, 0.95, s);
-  float surf = surfK * (0.35 + 0.65 * smoothstep(0.1, 0.8, sin(uTime * 1.3 - s * 6.0 + h * 2.5)));
-  float foam = max(crest * 0.8, surf * 0.85);
+  float crest = smoothstep(0.7, 0.85, raw / 0.365) * step(0.86, h) * smoothstep(1.5, 4.0, s) * step(vSize, 1.5);
+  // surf: a broken white line on the blocks touching the beach, and foam bands washing in
+  float edge = (1.0 - step(0.3, s)) * step(0.3, h);
+  float band = smoothstep(0.55, 0.9, sin(uTime * 1.2 + s * 4.5 + h * 1.2)) * (1.0 - smoothstep(0.3, 1.3, s)) * step(0.25, fract(h * 7.0));
+  float foam = max(crest * 0.75, max(edge * 0.8, band * 0.7));
   return mix(col, vec3(0.92, 0.97, 1.0) * uTint, foam);
 }
 void main() {
@@ -99,7 +103,8 @@ void main() {
   vec2 nb = aCol.zw * 0.125;
   float kind = mod(aVtx.z, 8.0);
   float shO = floor(aVtx.z / 8.0) * 0.25;
-  float shN = aVtx.w * 0.25;
+  vSize = floor(aVtx.w / 4096.0);
+  float shN = (aVtx.w - vSize * 4096.0) * 0.25;
   float rO = wRaw(own);
   float hO = wLevel(rO, shO);
   float y = hO;
@@ -161,7 +166,7 @@ void main() {
   // ripple rows drifting across each block and a few twinkling glints
   float rip = vxSeam(tc.y + floor(sin(tc.x * 0.21 + uVxTime * 1.3) * 1.5) + floor(uVxTime * 2.0), 9.0, fw) * (1.0 - vSide);
   float gl = vxH2(ti * 0.73 + floor(uVxTime * 1.5 + t1 * 4.0));
-  float glint = gl > 0.986 ? (1.0 - vSide) : 0.0;
+  float glint = gl > 0.992 ? (1.0 - vSide) : 0.0;
   vec3 col = vCol * (1.0 + (t1 - 0.5) * 0.08 * kT + rip * 0.07 * kL);
   float sh = vxCloudShadow(vW);
   float dif = max(dot(n, uSunDir), 0.0);
@@ -194,16 +199,23 @@ void main() {
   // the next and aligned to that ring's cell size.
   const LAYOUTS = {
     island: {
-      high: [{ rect: [-20, 4, 20, 22], cell: 0.25 }, { rect: [-30, -30, 30, 24], cell: 0.5 }, { rect: [-66, -82, 66, 48], cell: 2 }],
-      medium: [{ rect: [-14, 6, 14, 20], cell: 0.25 }, { rect: [-30, -30, 30, 24], cell: 0.5 }, { rect: [-66, -82, 66, 48], cell: 2 }],
-      low: [{ rect: [-24, -24, 24, 22], cell: 0.5 }, { rect: [-60, -76, 60, 46], cell: 2 }],
+      high: [{ rect: [-20, 4, 20, 22], cell: 0.25 }, { rect: [-30, -30, 30, 24], cell: 0.5 }, { rect: [-48, -56, 48, 40], cell: 2 }, { rect: [-72, -88, 72, 56], cell: 4 }],
+      medium: [{ rect: [-14, 6, 14, 20], cell: 0.25 }, { rect: [-26, -26, 26, 22], cell: 0.5 }, { rect: [-48, -56, 48, 40], cell: 2 }, { rect: [-72, -88, 72, 56], cell: 4 }],
+      low: [{ rect: [-24, -24, 24, 22], cell: 0.5 }, { rect: [-48, -56, 48, 40], cell: 2 }, { rect: [-72, -88, 72, 56], cell: 4 }],
     },
     battle: {
-      high: [{ rect: [-14, -10, 14, 10], cell: 0.25 }, { rect: [-30, -34, 30, 24], cell: 0.5 }, { rect: [-70, -90, 70, 50], cell: 2 }],
-      medium: [{ rect: [-10, -8, 10, 8], cell: 0.25 }, { rect: [-26, -30, 26, 22], cell: 0.5 }, { rect: [-66, -86, 66, 48], cell: 2 }],
-      low: [{ rect: [-20, -22, 20, 16], cell: 0.5 }, { rect: [-60, -80, 60, 44], cell: 2 }],
+      high: [{ rect: [-12, -10, 12, 10], cell: 0.25 }, { rect: [-26, -30, 26, 20], cell: 0.5 }, { rect: [-48, -60, 48, 40], cell: 2 }, { rect: [-72, -92, 72, 56], cell: 4 }],
+      medium: [{ rect: [-10, -8, 10, 8], cell: 0.25 }, { rect: [-24, -28, 24, 18], cell: 0.5 }, { rect: [-48, -60, 48, 40], cell: 2 }, { rect: [-72, -92, 72, 56], cell: 4 }],
+      low: [{ rect: [-20, -22, 20, 16], cell: 0.5 }, { rect: [-48, -60, 48, 40], cell: 2 }, { rect: [-72, -92, 72, 56], cell: 4 }],
     },
   };
+  // every ring must sit on the next ring's grid
+  for (const k in LAYOUTS) for (const q in LAYOUTS[k]) LAYOUTS[k][q].forEach((r, i, a) => {
+    const o = a[i + 1];
+    if (!o) return;
+    const ok = [0, 1, 2, 3].every(j => Math.abs(((r.rect[j] - o.rect[j & 1]) / o.cell) % 1) < 1e-9) && r.rect[0] >= o.rect[0] && r.rect[1] >= o.rect[1] && r.rect[2] <= o.rect[2] && r.rect[3] <= o.rect[3];
+    if (!ok) console.warn('sea: ring not aligned', k, q, i);
+  });
   const FAR_R = 300;
   const MAXV = 65532;
 
@@ -254,7 +266,7 @@ void main() {
     const last = rings.length - 1;
     const zone = c => {
       const cx = c.x + c.s / 2, cz = c.z + c.s / 2;
-      if (c.ring === last && last > 0) return 0;
+      if ((c.ring === last && last > 0) || rings[c.ring].cell >= 2) return 0;
       if (rings[c.ring].cell <= G) return cx < 0 ? 1 : 2;
       if (cz < -18) return 3;
       return cx < -16 ? 4 : cx >= 16 ? 5 : 6;
@@ -281,9 +293,10 @@ void main() {
       chunks.push(cur);
     };
     newChunk();
+    let szc = 0; // column size code of the column being emitted: 0 = 0.25, 1 = 0.5, 2 = 1, 3 = 2+
     const vert = (x, z, cx, cz, nx, nz, kind, sh, shN) => {
       cur.col.push(q8(cx), q8(cz), q8(nx), q8(nz));
-      cur.vtx.push(q8(x), q8(z), kind + 8 * sq(sh), sq(shN));
+      cur.vtx.push(q8(x), q8(z), kind + 8 * sq(sh), sq(shN) + 4096 * szc);
       if (x < cur.bx0) cur.bx0 = x; if (x > cur.bx1) cur.bx1 = x;
       if (z < cur.bz0) cur.bz0 = z; if (z > cur.bz1) cur.bz1 = z;
       return cur.nv++;
@@ -294,6 +307,7 @@ void main() {
       const c = cols[id];
       if (cur.nv > MAXV - 200 || (id > 0 && cols[id - 1].zone !== c.zone && cur.nv)) newChunk();
       const cx = c.x + c.s / 2, cz = c.z + c.s / 2;
+      szc = c.s <= 0.25 ? 0 : c.s <= 0.5 ? 1 : c.s <= 1 ? 2 : 3;
       // top
       quad(vert(c.x, c.z + c.s, cx, cz, cx, cz, 0, c.shore, c.shore), vert(c.x + c.s, c.z + c.s, cx, cz, cx, cz, 0, c.shore, c.shore),
         vert(c.x + c.s, c.z, cx, cz, cx, cz, 0, c.shore, c.shore), vert(c.x, c.z, cx, cz, cx, cz, 0, c.shore, c.shore));
@@ -357,7 +371,7 @@ void main() {
       const [x0, z0, x1, z1] = outer, R = FAR_R;
       const pts = [[-R, -R], [R, -R], [R, R], [-R, R], [x0, z0], [x1, z0], [x1, z1], [x0, z1]];
       const col = [], vtx = [], idx = [];
-      for (const [x, z] of pts) { col.push(q8(x), q8(z), q8(x), q8(z)); vtx.push(q8(x), q8(z), 7 + 8 * sq(FAR_SHORE), sq(FAR_SHORE)); }
+      for (const [x, z] of pts) { col.push(q8(x), q8(z), q8(x), q8(z)); vtx.push(q8(x), q8(z), 7 + 8 * sq(FAR_SHORE), sq(FAR_SHORE) + 4096 * 3); }
       for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; idx.push(i, j, 4 + j, i, 4 + j, 4 + i); }
       const g = new THREE.BufferGeometry();
       g.setAttribute('aCol', new THREE.BufferAttribute(new Int16Array(col), 4));
@@ -495,7 +509,7 @@ void main() {
     vec2 cell = floor(sp);
     float s = sH(cell);
     vec2 f = fract(sp) - 0.5;
-    float star = (s > 0.985 && max(abs(f.x), abs(f.y)) < 0.32) ? (0.55 + 0.45 * sin(uTime * 2.3 + s * 80.0)) : 0.0;
+    float star = (s > 0.988 && max(abs(f.x), abs(f.y)) < 0.24) ? (0.55 + 0.45 * sin(uTime * 2.3 + s * 80.0)) : 0.0;
     col += vec3(star) * uStars * smoothstep(0.02, 0.2, h);
   }
   gl_FragColor = vec4(mix(col, vec3(1.0), uFlash), 1.0);

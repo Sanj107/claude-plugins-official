@@ -530,16 +530,19 @@ vec3 vxTexture(vec3 c, inout vec3 em) {
     }
   } else if (mat < 10.5) {               // sand: fine speckle
     float mt = vxH3(vec3(floor(tc / 2.0), plane)) - 0.5;
-    m = ((n - 0.5) * 0.10 + (n > 0.94 ? -0.10 : 0.0) + (n < 0.04 ? 0.08 : 0.0)) * kT + mt * 0.05 * kL;
-  } else if (mat < 11.5) {               // rock: mottling and cracks
+    m = ((n - 0.5) * 0.07 + (n > 0.96 ? -0.06 : 0.0) + (n < 0.03 ? 0.06 : 0.0)) * kT + mt * 0.04 * kL;
+  } else if (mat < 11.5) {               // rock: mottling and jagged cracks across 10-texel cells
     float mt = vxH3(vec3(floor(tc / 3.0), plane)) - 0.5;
-    vec2 cd = normalize(vec2(vxH3(cell + 1.7) - 0.5, vxH3(cell + 4.3) - 0.5) + 0.001);
-    vec2 q = lc - 0.5 - (vec2(vxH3(cell + 2.9), vxH3(cell + 6.1)) - 0.5) * 0.3;
-    float dl = abs(dot(q, vec2(-cd.y, cd.x))) * tpv;
-    float along = abs(dot(q, cd)) * tpv;
+    vec2 cc = floor(tc / 10.0);
+    float hc = vxH3(vec3(cc, plane));
+    vec2 cd = normalize(vec2(vxH3(vec3(cc, plane + 1.7)) - 0.5, vxH3(vec3(cc, plane + 4.3)) - 0.5) + 0.001);
+    vec2 q = tc - (cc + 0.5) * 10.0 - (vec2(vxH3(vec3(cc, plane + 2.9)), vxH3(vec3(cc, plane + 6.1))) - 0.5) * 4.0;
+    float along = dot(q, cd);
+    float jag = floor(vxH2(vec2(floor(along / 2.0), hc * 50.0)) * 3.0) - 1.0;
+    float dl = abs(dot(q, vec2(-cd.y, cd.x)) + jag * 0.6);
     float hw = max(0.5 * fw, 0.03);
-    float crack = (ch > 0.45 ? 1.0 : 0.0) * (1.0 - smoothstep(0.5 - hw, 0.5 + hw, dl)) * (along < tpv * 0.38 ? 1.0 : 0.0) * min(1.0, 1.0 / fw);
-    m = mt * 0.16 * kL + (n - 0.5) * 0.08 * kT - 0.30 * crack * kL;
+    float crack = (hc > 0.45 ? 1.0 : 0.0) * (1.0 - smoothstep(0.5 - hw, 0.5 + hw, dl)) * (abs(along) < 4.5 ? 1.0 : 0.0) * min(1.0, 1.0 / fw);
+    m = mt * 0.16 * kL + (n - 0.5) * 0.08 * kT - 0.30 * crack * kL + (ch - 0.5) * 0.06 * kL;
   } else if (mat < 12.5) {               // metal: panels, rivets, brushed streaks
     vec2 pl = floor(mod(tc, 8.0));
     float riv = ((pl.x == 1.0 || pl.x == 6.0) && (pl.y == 1.0 || pl.y == 6.0)) ? 1.0 : 0.0;
