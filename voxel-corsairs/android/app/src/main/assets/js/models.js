@@ -1497,11 +1497,16 @@
       // copper pot still on a fire box, swan neck into the condenser
       block(P, -6, 0, 1, -2, 2, 5, brick('#8a4030'));
       lit(P, -4, 1, 5, '#ff6a2a'); lit(P, -3, 1, 5, '#ffb13a'); lit(P, -5, 1, 5, '#ff8a2a');
-      v.ball(-4, 6, 3, 3.2, 3.4, 2.6, (x, y, z) => MT('metal', hash(x, y, z) < 0.15 ? '#ffc890' : y > 7 ? '#f0a060' : '#d8783a'), (x, y) => y >= 3);
+      // pot: a riveted copper drum with a domed helmet, then the swan neck down to a wooden
+      // condenser tub with the copper worm coiling inside it
+      const copper = y => MT('metal', y % 3 === 0 ? '#b8622e' : y > 6 ? '#e88a4a' : '#d0743a');
+      v.cyl(-4, 3, 3, 2.4, 6, (x, y) => copper(y));
+      v.ball(-4, 7, 3, 2.4, 2, 2.4, (x, y) => MT('metal', y > 8 ? '#f0a060' : '#e0884a'), (x, y) => y >= 7);
       v.box(-4, 9, 3, -4, 11, 3, MT('metal', '#e0884a')); v.set(-4, 12, 3, MT('metal', '#c8703a'));
       v.line(-4, 12, 3, 1, 9, 3, MT('metal', '#e0884a'));
-      for (let y = 3; y <= 9; y++) { const a = y * 1.7; v.set(2 + Math.round(Math.cos(a) * 1.6), y, 3 + Math.round(Math.sin(a) * 1.6), MT('metal', '#f0a060')); }
-      v.box(2, 0, 3, 2, 9, 3, MT('metal', '#c8703a'));
+      v.cyl(2, 0, 3, 1.6, 7, (x, y) => MT('plank', y === 1 || y === 6 ? '#4a4440' : '#8a5a32'));
+      for (let y = 8; y <= 9; y++) { const a = y * 1.7; v.set(2 + Math.round(Math.cos(a) * 1.4), y, 3 + Math.round(Math.sin(a) * 1.4), MT('metal', '#f0a060')); }
+      v.set(1, 9, 3, MT('metal', '#e0884a')); v.set(3, 1, 5, MT('metal', '#c8703a')); v.set(3, 0, 5, MT('metal', '#c8703a'));
       barrel(P, 1, 0, 5, '#7a4a2a', true);
       // stacked rum barrels and a crate of bottles
       barrel(P, 4, 0, 0); barrel(P, 4, 0, 3, '#7a4a2a'); barrel(P, 4, 4, 1, '#8a5a32');
@@ -1517,10 +1522,12 @@
       for (const z of [-6, -3, 0, 3]) for (let x = -7; x <= 1; x++) {
         if (hash(x, 3, z) < 0.12) continue;
         const h = 9 + Math.floor(hash(x, 1, z) * 6);
-        for (let y = 1; y < h; y++) v.set(x, y, z, MT('leaf', y % 3 === 2 ? '#5a8a30' : y % 3 === 0 ? '#86c050' : '#7ab648'));
-        v.set(x, h, z, MT('leaf', '#c9d65a'));
-        v.set(x, h - 1, z + (x & 1 ? 1 : -1), MT('leaf', '#9ac83a'));
-        if (x % 2 === 0) v.set(x + 1, h - 3, z, MT('leaf', '#8ac040'));
+        // jointed stalks (dark nodes), arching leaves, a few silvery plumes
+        for (let y = 1; y < h; y++) v.set(x, y, z, MT('bark', y % 3 === 0 ? '#5a7a2a' : y < h - 3 ? '#8aa848' : '#6f9a3a'));
+        v.set(x, h, z, MT('leaf', hash(x, 7, z) < 0.25 ? '#e0dcc0' : '#5f9a3a'));
+        v.set(x, h - 1, z + (x & 1 ? 1 : -1), MT('leaf', '#4f8a32'));
+        v.set(x, h - 3, z + (x & 1 ? -1 : 1), MT('leaf', '#5a9a3a'));
+        if (x % 2 === 0) v.set(x + 1, h - 3, z, MT('leaf', '#68a840'));
       }
       // press shed with a thatched roof
       block(P, 2, 0, -7, 6, 5, -3, vplanks('#a0703c'));
@@ -1695,9 +1702,17 @@
       for (const x of [-6, -3, 1, 4]) { for (let y = 2; y <= 10; y++) { v.set(x, y, 3, MT('stone', '#d8d2c4')); v.set(x + 1, y, 3, MT('stone', '#c8c2b4')); } v.box(x, 2, 4, x + 1, 2, 4, MT('stone', '#a8a296')); }
       block(P, -7, 11, -7, 6, 12, 4, stone('#8f8a80'));
       for (let x = -7; x <= 6; x++) v.set(x, 12, 5, MT('gold', x % 2 ? '#e0b04a' : '#c8a040'));
-      // golden dome with a lantern on top
-      v.ball(-0.5, 13, -1.5, 5, 5.4, 5, (x, y, z) => MT('gold', hash(x, y, z) < 0.12 ? '#fff2a0' : y > 16 ? '#ffd23f' : (x + z + y) % 3 === 0 ? '#d8a828' : '#e8b830'), (x, y) => y >= 13);
-      v.box(-1, 19, -2, 0, 20, -1, MT('gold', '#ffd23f')); lit(P, -1, 21, -2, '#fff2a0'); v.set(-1, 22, -2, MT('gold', '#ffd23f'));
+      // drum with small arched windows, a ribbed golden dome, a glazed lantern and a spire
+      v.cyl(-0.5, 13, -1.5, 4.4, 14, (x, y, z) => MT('stone', y === 14 ? '#d8d2c4' : '#c8c2b4'));
+      for (let a = 0; a < 8; a++) { const t = a / 8 * Math.PI * 2 + 0.2; lit(P, Math.round(-0.5 + Math.cos(t) * 4.3), 13, Math.round(-1.5 + Math.sin(t) * 4.3), '#ffe8a0'); }
+      v.cyl(-0.5, 15, -1.5, 4.8, 15, MT('gold', '#c8a040'));
+      v.ball(-0.5, 15, -1.5, 4.5, 5.2, 4.5, (x, y, z) => {
+        const ang = Math.atan2(z + 1.5, x + 0.5), rib = mod(Math.round(ang / (Math.PI / 6)), 1) === 0 && Math.abs(ang / (Math.PI / 6) - Math.round(ang / (Math.PI / 6))) < 0.18;
+        return MT('gold', rib ? '#c8962a' : y > 18 ? '#ffe070' : y > 16 ? '#f2c43a' : '#e0b030');
+      }, (x, y) => y >= 16);
+      v.box(-1, 20, -2, 0, 20, -1, MT('gold', '#c8962a'));
+      for (const [x, z] of [[-1, -2], [0, -2], [-1, -1], [0, -1]]) lit(P, x, 21, z, '#fff2a0');
+      v.box(-1, 22, -2, 0, 22, -1, MT('gold', '#c8962a')); v.set(-1, 23, -2, MT('gold', '#ffd23f')); v.set(-1, 24, -2, MT('gold', '#fff2a0'));
       // round vault door with spokes
       for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) {
         const d = Math.hypot(i, j);
@@ -1775,16 +1790,17 @@
       block(P, -4, 18, -2, 3, 18, 1, bz);
       // left arm down with a spyglass, right arm raised with the cutlass
       block(P, -5, 14, -1, -4, 18, 0, bz); v.box(-5, 12, 0, -5, 13, 0, MT('metal', '#c8a050')); v.set(-5, 11, 0, MT('metal', '#b8862a'));
-      block(P, 3, 18, -1, 4, 22, 0, bz); v.set(4, 23, 0, bl);
+      block(P, 3, 18, -1, 4, 22, 0, bz); block(P, 4, 23, 0, 4, 23, 0, bl);
       for (let k = 0; k <= 7; k++) v.set(4 + Math.round(k * 0.3), 24 + k, 0, MT('metal', k === 0 ? '#c8a050' : '#d8d8d2'));
       v.box(3, 24, -1, 5, 24, 1, MT('metal', '#c8a050'));
       // head, beard, eyes
       block(P, -2, 19, -2, 1, 22, 1, bl);
-      v.box(-1, 19, 2, 0, 19, 2, dk); v.set(-2, 20, 2, bl); v.set(1, 20, 2, bl); v.set(-1, 20, 2, bz); v.set(0, 20, 2, bz);
-      v.set(-2, 21, 2, MT('metal', '#3a2a18')); v.set(1, 21, 2, MT('metal', '#3a2a18'));
+      // beard and moustache stand out from the face; small dark eyes under the brim
+      block(P, -1, 19, 2, 0, 20, 2, dk); block(P, -2, 20, 2, -2, 20, 2, bz); block(P, 1, 20, 2, 1, 20, 2, bz);
+      v.set(-2, 21, 1, MT('metal', '#3a2a18')); v.set(1, 21, 1, MT('metal', '#3a2a18')); block(P, -1, 21, 2, -1, 21, 2, bl);
       // tricorn: wide brim with turned-up corners, crown, feather
       block(P, -4, 23, -3, 3, 23, 2, dk);
-      for (const [x, z] of [[-4, -3], [3, -3], [-4, 2], [3, 2], [-1, 2], [0, 2]]) v.set(x, 24, z, dk);
+      for (const [x, z] of [[-4, -3], [3, -3], [-4, 2], [3, 2], [-1, 2], [0, 2]]) block(P, x, 24, z, x, 24, z, dk);
       block(P, -2, 24, -2, 1, 25, 1, dk);
       v.line(-3, 24, -2, -5, 28, -3, MT('cloth', '#e8e0d0'));
       v.box(-1, 4, 3, 0, 5, 3, MT('gold', '#f0c03a'));

@@ -206,9 +206,10 @@
       const info = M.ship(opts);
       const sc = info.scale || S;
       const center = [info.cx !== undefined ? info.cx : (info.vox.minX + info.vox.maxX + 1) / 2, info.waterline, info.cz || 0];
-      const mo = { scale: sc, center };
-      const hull = VC.Voxel.mesh(info.vox, { scale: sc, center, occluders: info.glow });
-      const glow = info.glow.count ? VC.Voxel.mesh(info.glow, { scale: sc, center, occluders: info.vox }) : null;
+      // Downward faces are dropped: every camera looks at ships from above (saves ~10% triangles).
+      const mo = { scale: sc, center, skipBottom: true };
+      const hull = VC.Voxel.mesh(info.vox, Object.assign({ occluders: info.glow }, mo));
+      const glow = info.glow.count ? VC.Voxel.mesh(info.glow, Object.assign({ occluders: info.vox }, mo)) : null;
       // sails and flags share the cloth shader; each mast's yards and square sails are meshed in
       // place and turned around the mast (braced), so the cloth stays smooth
       const clothItems = info.cloth.map(c => ({ geo: VC.Voxel.mesh(c.vox, Object.assign({ attr: { name: 'cloth', size: 3, fn: c.fn }, occluders: info.vox }, mo)) }));

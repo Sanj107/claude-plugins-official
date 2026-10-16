@@ -757,7 +757,7 @@
     // the plot cells (with the height of the back-row buildings) …
     for (const x of [CELLS.x0 - 0.1, CELLS.x1 + 0.1]) for (const z of [CELLS.z0, CELLS.z1]) { pts.push(new THREE.Vector3(x, GY, z)); if (z < 0) pts.push(new THREE.Vector3(x, GY + 1.6, z)); }
     // … and the docked ship (not when a panel covers the bottom of the screen)
-    const front = tune.front || (portrait ? 10.3 : 7.0);
+    const front = tune.front || (portrait ? 10.3 : 9.0);
     if (!cover) for (const x of [-1.6, 4.6]) pts.push(new THREE.Vector3(x, 0, front));
     // free band in NDC: below the top HUD, above the tab bar (or the panel)
     const topPx = portrait ? 132 : 128, botPx = portrait ? 70 : 62;
