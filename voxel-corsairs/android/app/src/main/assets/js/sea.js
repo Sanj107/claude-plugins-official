@@ -6,9 +6,11 @@
 // evaluates the wave trains at each column centre, so the CPU never touches the vertices.
 // Each column draws its top plus the walls toward its +x / +z neighbours (and toward a coarser
 // ring or the far sea); a wall spans the height difference of the two columns, so it vanishes when
-// they are level. Columns are 0.25 near the island (or the battle), 0.5 further out and 2.0 far
-// away, then a flat far sea runs into the fog. Scene.waveAt(x, z) returns the same quantized level,
-// so ships and props sit in the water.
+// they are level. Columns are 0.25 near the island (or the battle), 0.5 further out, 2.0 and 4.0 far
+// away, then a flat far sea runs into the fog (ring sizes per graphics level in LAYOUTS; 'low' has
+// no 0.25 ring and compiles the water shader without ripples, glints and cloud shadows). Budget:
+// <= 120k triangles (<= 80k on low) and <= 8 draw calls per field. Scene.waveAt(x, z) returns the
+// same quantized level, so ships and props sit in the water.
 (function (VC) {
   const Scene = VC.Scene;
   const M = VC.Models;
