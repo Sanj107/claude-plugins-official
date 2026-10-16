@@ -139,7 +139,9 @@
   //   normal    Int8 x3, normalized   axis-aligned face normal
   //   color     Uint8 x3, normalized  colour with the baked face shade, AO and per-voxel noise
   //   vox       Int16 x4              voxel-space corner (x, y, z) and a packed word:
-  //                                   material id * 128 + face direction * 16 + texels per voxel
+  //                                   16384 * covered + material id * 128 + face direction * 16 + texels per voxel
+  //                                   (covered: a side face whose voxel has a solid voxel on top —
+  //                                   grass draws its overhang only on the topmost block)
   // The shader draws the material's pixel texture from `vox` at a constant world-space density
   // (TEXELS per world unit), so 0.25 terrain and 0.125 detail models look like one world.
   const TEXELS = 32;
@@ -164,6 +166,8 @@
     return g;
   }
   const c255 = v => (v >= 1 ? 255 : v <= 0 ? 0 : (v * 255 + 0.5) | 0);
+  /** Mesher totals since load (for the perf report): calls, faces, milliseconds. */
+  const stats = { calls: 0, faces: 0, ms: 0 };
 
   /**
    * Builds a BufferGeometry. opts: { scale, center: [x,y,z] in voxels or 'base', noise }
@@ -177,7 +181,12 @@
    * Uses a dense occupancy grid over the model bounds, so big models mesh quickly.
    */
   function mesh(v, opts) {
-    opts = opts || {};
+    const t0 = performance.now();
+    const g = meshImpl(v, opts || {});
+    stats.calls++; stats.ms += performance.now() - t0; stats.faces += g.attributes.position.count / 4;
+    return g;
+  }
+  function meshImpl(v, opts) {
     const s = opts.scale || 0.25;
     let ox = 0, oy = 0, oz = 0;
     if (opts.center === 'base') {
@@ -230,6 +239,7 @@
       const c = v.map.get(k);
       const rgb = rgbOf(c);
       const mword = ((c >>> 24) & 127) * 128 + tpv;
+      const cov = grid[gi + SY] ? 16384 : 0;
       // Stable per-voxel noise so surfaces look hand-painted rather than flat.
       const h = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453;
       const nzk = 1 + ((h - Math.floor(h)) - 0.5) * 2 * noise;
@@ -239,7 +249,7 @@
         const ni = gi + F.dn;
         if (grid[ni]) continue;
         const f = F.f;
-        const w = tpv ? mword + j * 16 : 0;
+        const w = tpv ? mword + j * 16 + (j === 2 || j === 3 ? 0 : cov) : 0;
         for (let c4 = 0; c4 < 4; c4++) {
           const d = F.ao[c4];
           const s1 = grid[ni + d[0]], s2 = grid[ni + d[1]], cc = grid[ni + d[2]];
@@ -275,7 +285,12 @@
    * Same look and vertex layout as mesh(): per-voxel faces with baked AO and noise; no bottom faces.
    */
   function heightMesh(hf, opts) {
-    opts = opts || {};
+    const t0 = performance.now();
+    const g = heightMeshImpl(hf, opts || {});
+    stats.calls++; stats.ms += performance.now() - t0; stats.faces += g.attributes.position.count / 4;
+    return g;
+  }
+  function heightMeshImpl(hf, opts) {
     const s = opts.scale || 0.25;
     const noise = opts.noise === undefined ? 0.05 : opts.noise;
     const tpv = opts.texels === undefined ? texelsFor(s) : opts.texels;
@@ -313,9 +328,9 @@
     }));
     const FT = fset[2], FS = [fset[0], fset[1], fset[3], fset[4]];
     let bx0 = 1e9, by0 = 1e9, bz0 = 1e9, bx1 = -1e9, by1 = -1e9, bz1 = -1e9;
-    const emit = (F, c0, x, y, z, rgb, nzk, mword) => {
+    const emit = (F, c0, x, y, z, rgb, nzk, mword, cov) => {
       const f = F.f, nc = c0 + F.dc, ny = y + F.dy;
-      const w = tpv ? mword + f.dir * 16 : 0;
+      const w = tpv ? mword + f.dir * 16 + cov : 0;
       for (let c = 0; c < 4; c++) {
         const a = F.ao[c];
         const s1 = sol(nc + a[0], ny + a[1]) ? 1 : 0, s2 = sol(nc + a[2], ny + a[3]) ? 1 : 0, cc = sol(nc + a[4], ny + a[5]) ? 1 : 0;
@@ -351,8 +366,9 @@
         const mword = ((toInt(c) >>> 24) & 127) * 128 + tpv;
         const hh = Math.sin(i * 12.9898 + y * 78.233 + k * 37.719) * 43758.5453;
         const nzk = 1 + ((hh - Math.floor(hh)) - 0.5) * 2 * noise;
-        if (y === h) emit(FT, c0, i, y, k, rgb, nzk, mword);
-        for (let q = 0; q < 4; q++) if (Math.max(Hs[c0 + SD[q]], yMin - 1) < y) emit(FS[q], c0, i, y, k, rgb, nzk, mword);
+        if (y === h) emit(FT, c0, i, y, k, rgb, nzk, mword, 0);
+        const cov = y < h ? 16384 : 0;
+        for (let q = 0; q < 4; q++) if (Math.max(Hs[c0 + SD[q]], yMin - 1) < y) emit(FS[q], c0, i, y, k, rgb, nzk, mword, cov);
       }
     }
     const g = finishGeo(B, null);
@@ -420,6 +436,8 @@ varying vec4 vVox;
 varying vec3 vVxW;
 vec3 vxTexture(vec3 c, inout vec3 em) {
   float w = floor(vVox.w + 0.5);
+  float covered = step(16383.5, w);
+  w -= covered * 16384.0;
   float tpv = mod(w, 16.0);
   if (tpv < 0.5 || uVxDetail < 0.01) return c;
   float dir = mod(floor(w / 16.0), 8.0);
@@ -523,7 +541,7 @@ vec3 vxTexture(vec3 c, inout vec3 em) {
     } else {
       float fromTop = (1.0 - lc.y) * tpv;
       float edge = 1.0 + floor(vxH2(vec2(ti.x, plane)) * 2.5) * (tpv > 5.0 ? 1.0 : 0.5);
-      float dirt = fromTop >= edge ? 1.0 : 0.0;
+      float dirt = (fromTop >= edge || covered > 0.5) ? 1.0 : 0.0;
       vec3 dc = vec3(0.52, 0.36, 0.22) * (dot(c, vec3(0.333)) / 0.40);
       col = mix(col, dc, dirt * min(1.0, kL * 1.2));
       m = (n - 0.5) * 0.12 * kT + ((dirt > 0.5 && n > 0.9) ? 0.10 : 0.0) * kT;
@@ -612,7 +630,10 @@ vec3 vxTexture(vec3 c, inout vec3 em) {
   vec3 vxRatio = diffuseColor.rgb / max(vxBase, vec3(0.002));`)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' +
         (variant === 'glow' ? '  totalEmissiveRadiance *= vColor * vxRatio;\n' : '') + '  totalEmissiveRadiance += vxEm;')
-      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  reflectedLight.directDiffuse *= 1.0 - 0.6 * vxCloudShadow(vVxW);');
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+  float vxSh = vxCloudShadow(vVxW);
+  reflectedLight.directDiffuse *= 1.0 - 0.8 * vxSh;
+  reflectedLight.indirectDiffuse *= 1.0 - 0.12 * vxSh;`);
   }
 
   /**
@@ -648,7 +669,7 @@ vec3 vxTexture(vec3 c, inout vec3 em) {
   }
 
   VC.Voxel = {
-    Vox, mesh, heightMesh, toMesh, material, texturize, patchShader, uniforms: U, GLSL_COMMON, TEXELS, texelsFor,
+    Vox, mesh, heightMesh, toMesh, material, texturize, patchShader, uniforms: U, GLSL_COMMON, TEXELS, texelsFor, stats,
     hexToRgb, toInt, MATS, mat, matOf,
   };
 })(window.VC);

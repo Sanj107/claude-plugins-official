@@ -28,7 +28,10 @@
     return Math.sin(x * 0.18 + t * 1.1) * 0.16 + Math.sin(z * 0.23 + t * 1.4 + x * 0.05) * 0.12 +
       Math.sin((x + z) * 0.41 + t * 2.1) * 0.05 + Math.sin(x * 0.67 - z * 0.52 + t * 2.6) * 0.035;
   }
+  // calmer in the shallows, and calmer far out where the columns get coarse (fades into the flat far sea)
   const damp = shore => 0.35 + 0.65 * smooth(0.5, 4.5, shore);
+  const FADE0 = 30, FADE1 = 66;
+  const farK = (x, z) => 1 - 0.7 * smooth(FADE0, FADE1, Math.hypot(x, z));
   function quantize(h) {
     const u = h / STEP, f = u - Math.floor(u);
     return LEVEL0 + STEP * (Math.floor(u) + smooth(0.5 - RAMP, 0.5 + RAMP, f));
@@ -47,7 +50,7 @@
 
   /** Water surface height at x,z now: the same quantized level the water blocks show. */
   Scene.waveAt = function (x, z) {
-    const amp = AMP * (this.stormy ? 2.2 : 1) * damp(this.shoreDist(x, z));
+    const amp = AMP * (this.stormy ? 2.2 : 1) * damp(this.shoreDist(x, z)) * farK(x, z);
     return quantize(waveRaw(x, z, this.t) * amp);
   };
 
@@ -73,8 +76,8 @@ float wRaw(vec2 p) {
   return sin(p.x * 0.18 + uTime * 1.1) * 0.16 + sin(p.y * 0.23 + uTime * 1.4 + p.x * 0.05) * 0.12
     + sin((p.x + p.y) * 0.41 + uTime * 2.1) * 0.05 + sin(p.x * 0.67 - p.y * 0.52 + uTime * 2.6) * 0.035;
 }
-float wLevel(float raw, float shore) {
-  float u = raw * uAmp * (0.35 + 0.65 * smoothstep(0.5, 4.5, shore)) / STEP;
+float wLevel(float raw, float shore, vec2 p) {
+  float u = raw * uAmp * (0.35 + 0.65 * smoothstep(0.5, 4.5, shore)) * (1.0 - 0.7 * smoothstep(${FADE0.toFixed(1)}, ${FADE1.toFixed(1)}, length(p))) / STEP;
   float f = fract(u);
   return LEVEL0 + STEP * (floor(u) + smoothstep(0.5 - RAMP, 0.5 + RAMP, f));
 }
@@ -88,8 +91,11 @@ vec3 wColor(vec2 c, float s, float lv, float raw) {
   // region tint: take its hue, keep the palette's brightness
   vec3 tint = uMix.rgb * (dot(col, vec3(0.3, 0.59, 0.11)) / max(dot(uMix.rgb, vec3(0.3, 0.59, 0.11)), 0.01));
   col = mix(col, tint, uMix.a) * uTint;
+  // mosaic: every block a little lighter or darker, some a touch greener; crests lighter than troughs
   float h = vxH2(floor(c * 4.0) + 0.5);
-  col *= (1.0 + 0.07 * (lv - LEVEL0) / STEP) * (0.95 + 0.10 * h);
+  float h2 = vxH2(floor(c * 4.0) + 17.3);
+  col *= (1.0 + 0.08 * (lv - LEVEL0) / STEP) * (0.92 + 0.16 * h);
+  col = mix(col, col * vec3(0.9, 1.07, 1.02), step(0.72, h2));
   // foam: white blocks on the highest crests out at sea and surf pulsing along the shore
   float crest = smoothstep(0.7, 0.85, raw / 0.365) * step(0.86, h) * smoothstep(1.5, 4.0, s) * step(vSize, 1.5);
   // surf: a broken white line on the blocks touching the beach, and foam bands washing in
@@ -106,7 +112,7 @@ void main() {
   vSize = floor(aVtx.w / 4096.0);
   float shN = (aVtx.w - vSize * 4096.0) * 0.25;
   float rO = wRaw(own);
-  float hO = wLevel(rO, shO);
+  float hO = wLevel(rO, shO, own);
   float y = hO;
   vec3 n = vec3(0.0, 1.0, 0.0);
   vec3 col;
@@ -119,7 +125,7 @@ void main() {
   } else {
     float rN = 0.0;
     float hN = uFar;
-    if (kind < 4.5) { rN = wRaw(nb); hN = wLevel(rN, shN); }
+    if (kind < 4.5) { rN = wRaw(nb); hN = wLevel(rN, shN, nb); }
     float up = (kind < 1.5 || (kind > 4.5 && kind < 5.5)) ? 1.0 : 0.0;
     y = up > 0.5 ? max(hO, hN) : min(hO, hN);
     vec2 d = normalize(nb - own);
@@ -166,16 +172,19 @@ void main() {
   // ripple rows drifting across each block and a few twinkling glints
   float rip = vxSeam(tc.y + floor(sin(tc.x * 0.21 + uVxTime * 1.3) * 1.5) + floor(uVxTime * 2.0), 9.0, fw) * (1.0 - vSide);
   float gl = vxH2(ti * 0.73 + floor(uVxTime * 1.5 + t1 * 4.0));
-  float glint = gl > 0.992 ? (1.0 - vSide) : 0.0;
+  float glint = gl > 0.994 ? (1.0 - vSide) : 0.0;
   vec3 col = vCol * (1.0 + (t1 - 0.5) * 0.08 * kT + rip * 0.07 * kL);
   float sh = vxCloudShadow(vW);
   float dif = max(dot(n, uSunDir), 0.0);
   vec3 amb = mix(uGroundCol, uSkyCol, n.y * 0.5 + 0.5);
-  vec3 lit = col * (amb + uSunCol * dif * (1.0 - 0.6 * sh));
+  // a touch brighter by night so the sea still reads as water under the moon
+  vec3 lit = col * (amb * (1.0 - 0.12 * sh) + uSunCol * dif * (1.0 - 0.8 * sh)) * (1.0 + 0.45 * uVxNight);
   vec3 V = normalize(cameraPosition - vW);
   vec3 H = normalize(V + uSunDir);
   float sp = pow(max(dot(n, H), 0.0), 90.0) * (1.0 - vSide);
-  lit += uSunCol * (sp * 0.4 + glint * 0.3 * kT) * (1.0 - sh);
+  // sun glitter by day; by night the moon path glitters silver-blue
+  vec3 gc = mix(uSunCol * 0.3, vec3(0.55, 0.65, 0.8), uVxNight);
+  lit += uSunCol * sp * 0.4 * (1.0 - sh) + gc * glint * kT * (1.0 - sh);
   gl_FragColor = vec4(lit, 1.0);
   #include <fog_fragment>
 }
@@ -548,9 +557,14 @@ void main() {
   };
 
   // ------------------------------------------------------------------ clouds
-  // Background clouds float behind the island (seen above the hills and in battles); a higher
-  // layer passes over the island out of view and only shows as soft moving shadows.
-  const CLOUD_H = 30;       // height of the shadow layer
+  // Two layers drift along +x and wrap around:
+  //   - near clouds float low over the back of the island, in view of the fixed island camera
+  //     (the camera looks down, so the sky itself is never on screen); hidden in battles;
+  //   - a high layer passes over the camera out of view and only shows as soft shadows sliding
+  //     over the island and the sea (about one every 50 units, so one is often in view).
+  // Every cloud is one merged mesh; the vertex shader moves and gently reshapes the puffs, so the
+  // CPU only updates a time uniform and the four shadow slots.
+  const CLOUD_H = 30;       // height of the shadow layer (shadow lookups project onto it)
   const CLOUD_SPAN = 120;   // clouds wrap around x in [-SPAN, SPAN]
   const cloudTime = { value: 0 };
   let cloudMat = null;
@@ -561,28 +575,33 @@ void main() {
       sh.uniforms.uCloudT = cloudTime;
       sh.vertexShader = 'attribute vec4 cloudA;\nattribute vec3 cloudP;\nuniform float uCloudT;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
   float cxw = mod(cloudA.x + uCloudT * cloudA.y + ${CLOUD_SPAN.toFixed(1)}, ${(CLOUD_SPAN * 2).toFixed(1)}) - ${CLOUD_SPAN.toFixed(1)};
-  float br = 1.0 + 0.06 * sin(uCloudT * 0.45 + cloudA.z);
+  float br = 1.0 + 0.07 * sin(uCloudT * 0.45 + cloudA.z);
   transformed = cloudP + (transformed - cloudP) * vec3(br, 1.0 / br, br);
-  transformed.y += 0.15 * sin(uCloudT * 0.3 + cloudA.z * 1.7);
+  transformed.y += 0.12 * sin(uCloudT * 0.3 + cloudA.z * 1.7);
   transformed.x += cxw - cloudA.x;`);
     };
     cloudMat = VC.Voxel.texturize(m, 'cloud');
     return cloudMat;
   }
-  /** One cloud: a few puffs (voxel ellipsoids) with flat-ish bottoms, shaded light on top. */
-  function cloudPuffs(seed) {
+  const CLOUD_COLS = ['#ffffff', '#f7f9fc', '#eef3f8', '#e2e9f1', '#d3dce8', '#c4cfde'];
+  /**
+   * One cloud: a few puffs (voxel ellipsoids, radii scaled by k) with flat-ish bottoms, white on
+   * top and blue-grey underneath, with a few lighter and darker blocks mixed in.
+   */
+  function cloudPuffs(seed, k) {
     const rnd = VC.util.rng(seed * 7919 + 13);
     const puffs = [];
     const n = 3 + Math.floor(rnd() * 3);
-    const len = 6 + rnd() * 6;
+    const len = (6 + rnd() * 6) * k;
     for (let i = 0; i < n; i++) {
       const v = new VC.Voxel.Vox();
-      const rx = 2.2 + rnd() * 2.2, ry = 1.4 + rnd() * 1.2, rz = 1.8 + rnd() * 1.6;
-      const px = (i / Math.max(1, n - 1) - 0.5) * len, pz = (rnd() - 0.5) * 3, py = (rnd() * 0.8) + (i === Math.floor(n / 2) ? 1 : 0);
-      const cols = ['#ffffff', '#f7f9fc', '#eef3f8', '#e2e9f1', '#d3dce8', '#c4cfde'];
+      const mid = i === Math.floor(n / 2);
+      const rx = (2.2 + rnd() * 2.2) * k, ry = (1.4 + rnd() * 1.2 + (mid ? 0.5 : 0)) * k, rz = (1.8 + rnd() * 1.6) * k;
+      const px = (i / Math.max(1, n - 1) - 0.5) * len, pz = (rnd() - 0.5) * 3 * k, py = (rnd() * 0.8 + (mid ? 1 : 0)) * k;
       v.ball(0, 0, 0, rx, ry, rz, (x, y, z) => {
-        const k = Math.max(0, Math.min(5, Math.round((ry - y) / (2 * ry) * 4 + (Math.abs(x * 7 + z * 13 + y * 3) % 5 === 0 ? 1 : 0))));
-        return cols[k];
+        const h = Math.abs(x * 7 + z * 13 + y * 3) % 7;
+        const c = Math.round((ry - y) / (2 * ry) * 4.5 + (h === 0 ? 1 : h === 1 ? -1 : 0));
+        return CLOUD_COLS[Math.max(0, Math.min(5, c))];
       }, (x, y) => y >= -ry * 0.55);
       puffs.push({ v, px, py, pz });
     }
@@ -593,40 +612,45 @@ void main() {
     const grp = this.cloudGroup;
     if (!grp) return;
     while (grp.children.length) { const c = grp.children.pop(); c.geometry.dispose(); }
-    const count = (this.Q && this.Q.clouds) || 8;
+    const nNear = (this.Q && this.Q.clouds) || 3;
+    const nHigh = this.Q && !this.Q.shadows ? 0 : 5;
     const rnd = VC.util.rng(4242);
     const items = [];
     this.cloudList = [];
-    const SC = 0.5; // world units per cloud voxel
-    for (let i = 0; i < count; i++) {
-      const high = i % 3 === 2; // every third cloud flies over the island (shadows)
-      const x0 = -CLOUD_SPAN + (i + rnd() * 0.6) * (CLOUD_SPAN * 2 / count);
-      const y = high ? CLOUD_H + rnd() * 2 : 9 + rnd() * 5;
-      const z = high ? -20 + rnd() * 40 : -26 - rnd() * 34;
-      const speed = 0.45 + rnd() * 0.35;
+    const SC = 0.25;   // world units per cloud voxel (one terrain voxel)
+    for (let i = 0; i < nNear + nHigh; i++) {
+      const high = i >= nNear;
+      const j = high ? i - nNear : i, n = high ? nHigh : nNear;
+      const x0 = -CLOUD_SPAN + (j + 0.2 + rnd() * 0.6) * (CLOUD_SPAN * 2 / n);
+      const y = high ? CLOUD_H + rnd() * 2 : 6.6 + rnd() * 1.6;
+      const z = high ? -6 + ((j * 0.37 + rnd() * 0.3) % 1) * 36 : -10.5 + rnd() * 5;
+      const speed = high ? 0.45 + rnd() * 0.35 : 0.32 + rnd() * 0.2;
       const phase = rnd() * 6.28;
-      const scale = high ? 1.4 : 1;
+      const k = high ? 2.8 : 1.0 + rnd() * 0.35; // cloud size (puff radii in half-unit voxels)
       let ext = 0, extZ = 0;
-      for (const p of cloudPuffs(i + 1)) {
-        const geo = VC.Voxel.mesh(p.v, { scale: SC * scale, center: [0, 0, 0], noise: 0.03, texels: 0 });
+      for (const p of cloudPuffs(i + 1, 2 * k)) {
+        ext = Math.max(ext, Math.abs(p.px * SC) + 4.4 * k * SC * 1.6);
+        extZ = Math.max(extZ, Math.abs(p.pz * SC) + 3.4 * k * SC * 1.6);
+        if (high) continue; // shadow only
+        const geo = VC.Voxel.mesh(p.v, { scale: SC, center: [0, 0, 0], noise: 0.03, texels: 0 });
         const cnt = geo.attributes.position.count;
-        const cx = x0 + p.px * SC * scale, cy = y + p.py * SC * scale, cz = z + p.pz * SC * scale;
+        const cx = x0 + p.px * SC, cy = y + p.py * SC, cz = z + p.pz * SC;
         const ca = new Float32Array(cnt * 4), cp = new Float32Array(cnt * 3);
-        for (let j = 0; j < cnt; j++) { ca[j * 4] = x0; ca[j * 4 + 1] = speed; ca[j * 4 + 2] = phase + p.px; cp[j * 3] = cx; cp[j * 3 + 1] = cy; cp[j * 3 + 2] = cz; }
+        for (let q = 0; q < cnt; q++) { ca[q * 4] = x0; ca[q * 4 + 1] = speed; ca[q * 4 + 2] = phase + p.px * 0.3; cp[q * 3] = cx; cp[q * 3 + 1] = cy; cp[q * 3 + 2] = cz; }
         geo.setAttribute('cloudA', new THREE.BufferAttribute(ca, 4));
         geo.setAttribute('cloudP', new THREE.BufferAttribute(cp, 3));
-        const mtx = new THREE.Matrix4().makeTranslation(cx, cy, cz);
-        items.push({ geo, matrix: mtx });
-        ext = Math.max(ext, Math.abs(p.px * SC * scale) + 3.5 * SC * scale * 1.3);
-        extZ = Math.max(extZ, Math.abs(p.pz * SC * scale) + 3 * SC * scale * 1.2);
+        items.push({ geo, matrix: new THREE.Matrix4().makeTranslation(cx, cy, cz) });
       }
-      this.cloudList.push({ x0, y, z, speed, high, rx: ext, rz: extZ });
+      this.cloudList.push({ x0, y, z, speed, high, rx: ext * 0.8, rz: extZ * 0.8 });
     }
-    const geo = this.mergeGeos(items);
+    if (items.length) {
+      const geo = this.mergeGeos(items);
+      const mesh = new THREE.Mesh(geo, cloudMaterial());
+      mesh.frustumCulled = false;
+      mesh.name = 'clouds';
+      grp.add(mesh);
+    }
     items.forEach(it => it.geo.dispose());
-    const mesh = new THREE.Mesh(geo, cloudMaterial());
-    mesh.frustumCulled = false;
-    grp.add(mesh);
   };
 
   /** Cloud x now (same wrap as the cloud vertex shader). */
@@ -635,21 +659,29 @@ void main() {
     return ((c.x0 + t * c.speed + CLOUD_SPAN) % S2 + S2) % S2 - CLOUD_SPAN;
   }
 
+  const shadowList = [];
   Scene.updateSky = function (dt, t) {
     cloudTime.value = t;
-    // the four high clouds nearest to the view centre cast shadows
+    const island = this.mode === 'island';
+    if (this.cloudGroup) this.cloudGroup.visible = island;
+    // The four clouds whose shadows fall nearest to the view centre cast them. Shadow lookups
+    // project onto the CLOUD_H layer, so a low cloud's centre is moved along the sun ray to it.
     const U = VU.uVxCloud.value, K = VU.uVxCloudK.value;
     const on = this.Q ? this.Q.shadows : true;
-    const list = (this.cloudList || []).filter(c => c.high).map(c => ({ c, x: cloudX(c, t) }));
     const S = VU.uVxSun.value;
-    // where on the cloud layer the view centre's sunlight comes from
-    const fx = S.x * CLOUD_H, fz = S.y * CLOUD_H;
-    list.sort((a, b) => Math.hypot(a.x - fx, a.c.z - fz) - Math.hypot(b.x - fx, b.c.z - fz));
+    shadowList.length = 0;
+    for (const c of this.cloudList || []) {
+      if (!c.high && !island) continue;
+      const x = cloudX(c, t) + S.x * (CLOUD_H - c.y), z = c.z + S.y * (CLOUD_H - c.y);
+      // distance of the shadow from the middle of the view (sunlight there comes from S * CLOUD_H)
+      shadowList.push({ c, x, z, d: Math.hypot(x - S.x * CLOUD_H, z - 2 - S.y * CLOUD_H) - c.rx });
+    }
+    shadowList.sort((a, b) => a.d - b.d);
     const k = on ? this.cloudShadowK || 0 : 0;
     for (let i = 0; i < 4; i++) {
-      const e = list[i];
+      const e = shadowList[i];
       if (!e) { K.setComponent(i, 0); continue; }
-      U[i].set(e.x, e.c.z, 1 / Math.max(1, e.c.rx), 1 / Math.max(1, e.c.rz));
+      U[i].set(e.x, e.z, 1 / Math.max(1, e.c.rx), 1 / Math.max(1, e.c.rz));
       K.setComponent(i, k);
     }
   };
@@ -657,13 +689,13 @@ void main() {
   // ------------------------------------------------------------------ day / night
   // [dayT, zenith, horizon (also fog), sea tint, ambient light, sun light]
   const SKY = [
-    [0.0, 0x050d1f, 0x0b1a33, 0x0f3352, 0.25, 0.2],
+    [0.0, 0x050d1f, 0x0b1a33, 0x14426e, 0.3, 0.24],
     [0.08, 0x3a6fb0, 0xf7a26b, 0x1d6690, 0.6, 0.55],
     [0.18, 0x3f9fe6, 0x8fd3f5, 0x1a78a8, 0.95, 0.85],
     [0.5, 0x3a96e0, 0x9fd8f5, 0x1a78a8, 1.0, 0.9],
     [0.62, 0x4a5fa8, 0xf28c5a, 0x1b6a92, 0.65, 0.6],
-    [0.72, 0x050d1f, 0x0b1a33, 0x0f2f50, 0.3, 0.25],
-    [1.0, 0x050d1f, 0x0b1a33, 0x0f3352, 0.25, 0.2],
+    [0.72, 0x050d1f, 0x0b1a33, 0x123c66, 0.32, 0.26],
+    [1.0, 0x050d1f, 0x0b1a33, 0x14426e, 0.3, 0.24],
   ];
   const DAY_SEA = new THREE.Color(0x1a78a8);
   const cA = new THREE.Color(), cB = new THREE.Color(), cT = new THREE.Color();
@@ -705,7 +737,7 @@ void main() {
     if (isDay) this.sun.color.setRGB(1, 0.95 - 0.12 * (1 - Math.sin(Math.PI * dayK)), 0.84 - 0.25 * (1 - Math.sin(Math.PI * dayK)));
     else this.sun.color.setHex(0xb8ccff);
     VU.uVxSun.value.set(L.x / Math.max(0.2, L.y), L.z / Math.max(0.2, L.y), CLOUD_H, 0);
-    this.cloudShadowK = isDay ? 0.75 * Math.min(1, sunI / 0.6) * (this.stormy ? 0.5 : 1) : 0;
+    this.cloudShadowK = isDay ? 0.85 * Math.min(1, sunI / 0.6) * (this.stormy ? 0.5 : 1) : 0;
     // water: lighting and tint
     const u = this.waterMat.uniforms;
     u.uSunDir.value.copy(L).normalize();

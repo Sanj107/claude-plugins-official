@@ -77,9 +77,9 @@
   // a short frame-time probe). A level sets the pixel-ratio cap, the voxel-water density and LOD
   // distance (sea.js), the strength of the surface textures and the clouds and their shadows.
   const QUALITY = {
-    low: { pr: 1, water: 'low', detail: 0.55, clouds: 5, shadows: false },
-    medium: { pr: 1.5, water: 'medium', detail: 0.85, clouds: 8, shadows: true },
-    high: { pr: 2, water: 'high', detail: 1, clouds: 11, shadows: true },
+    low: { pr: 1, water: 'low', detail: 0.55, clouds: 2, shadows: false },
+    medium: { pr: 1.5, water: 'medium', detail: 0.85, clouds: 3, shadows: true },
+    high: { pr: 2, water: 'high', detail: 1, clouds: 4, shadows: true },
   };
   const LEVELS = ['low', 'medium', 'high'];
   Scene.QUALITY = QUALITY;
