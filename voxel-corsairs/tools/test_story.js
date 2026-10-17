@@ -66,7 +66,11 @@ const OUT = process.argv[3] || require('os').tmpdir();
 
   // Endless raid
   await page.evaluate(() => VC.Game.startRaid(11));
-  await page.waitForTimeout(1500);
+  // A random sea hazard (a choice window) may come first; answer it until the battle starts.
+  for (let i = 0; i < 30 && !(await page.evaluate(() => !!(VC.Battle.active && VC.Battle.active.sim))); i++) {
+    await page.evaluate(() => { const b = document.querySelector('.modal > .btns > .btn'); if (b) b.click(); });
+    await page.waitForTimeout(500);
+  }
   const raid = await page.evaluate(() => VC.Battle.active ? VC.Battle.active.opts.enemy + '@' + VC.Battle.active.opts.level : 'none');
   console.log('endless raid:', raid);
   await page.evaluate(() => { const sim = VC.Battle.active.sim; sim.b.s[1].hp = 0; sim.b.finish(0, 'sink'); });
