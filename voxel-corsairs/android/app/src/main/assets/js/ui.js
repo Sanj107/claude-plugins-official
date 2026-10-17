@@ -105,8 +105,8 @@
     this.refreshTabs();
     VC.Game.onPanel(tab);
     requestAnimationFrame(() => {
-      const r = $('#panel').getBoundingClientRect();
-      VC.Scene.setPanelCover(Math.max(0, (window.innerHeight - r.top) / window.innerHeight - 0.12));
+      // offsetTop ignores the slide-in transform, so this is where the sheet ends up
+      VC.Scene.setPanelCover(Math.max(0, (window.innerHeight - $('#panel').offsetTop) / window.innerHeight - 0.12));
     });
   };
 

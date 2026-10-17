@@ -17,13 +17,45 @@
     this.sea = new THREE.Mesh(g, this.seaMat);
     this.sea.position.y = 0;
     this.scene.add(this.sea);
-    // Shallow-water ring around the island.
-    const ring = new THREE.Mesh(new THREE.CircleGeometry(9.5, 40), new THREE.MeshBasicMaterial({ color: 0x5fd0d8, transparent: true, opacity: 0.35 }));
+    // Shallow water around the island: a translucent overlay whose alpha follows the distance to
+    // land (see setShallow, called by the island once its coastline is known).
+    const ring = new THREE.Mesh(new THREE.CircleGeometry(9.5, 40), new THREE.MeshBasicMaterial({ color: 0x5fd0d8, transparent: true, opacity: 0.35, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(0, 0.06, -0.4);
-    ring.scale.set(1, 1.1, 1);
     this.shallow = ring;
     this.scene.add(ring);
+  };
+
+  /** info: { x0, z0, nx, nz, cell, land: Uint8Array, dL: Float32Array (distance to land in cells) } */
+  Scene.setShallow = function (info) {
+    const { nx, nz, cell } = info;
+    const cv = document.createElement('canvas');
+    cv.width = nx; cv.height = nz;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(nx, nz);
+    const maxD = 3.6 / cell;
+    for (let i = 0; i < nx; i++) for (let k = 0; k < nz; k++) {
+      const j = i * nz + k, o = (k * nx + i) * 4;
+      const d = info.land[j] ? 0 : info.dL[j];
+      const f = Math.max(0, 1 - d / maxD);
+      // turquoise near the beach, fading out to the open sea
+      img.data[o] = 95 + 60 * f * f; img.data[o + 1] = 208 + 30 * f * f; img.data[o + 2] = 216;
+      img.data[o + 3] = Math.round(255 * Math.min(0.62, 0.62 * Math.pow(f, 1.3)));
+    }
+    ctx.putImageData(img, 0, 0);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+    const geo = new THREE.PlaneGeometry(nx * cell, nz * cell);
+    geo.rotateX(-Math.PI / 2);
+    const old = this.shallow;
+    if (old) { old.geometry.dispose(); if (old.material.map) old.material.map.dispose(); old.material.dispose(); }
+    const m = old || new THREE.Mesh();
+    m.geometry = geo;
+    m.material = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+    m.rotation.set(0, 0, 0);
+    m.scale.set(1, 1, 1);
+    m.position.set(info.x0 + nx * cell / 2, 0.05, info.z0 + nz * cell / 2);
+    if (!old) { this.shallow = m; this.scene.add(m); }
   };
 
   Scene.updateSea = function (t) {
