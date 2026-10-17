@@ -547,7 +547,8 @@
     UI.modal({
       title: '⚙️ Настройки',
       html: `<div style="text-align:left">${row('🔊 Звуки', 'sound')}${row('🎵 Музыка', 'music')}${row('📳 Вибрация', 'vibro')}
-        <div class="row" style="justify-content:space-between;margin:8px 0"><span>🖥️ Графика</span><span class="toggle-row">${['low', 'auto', 'high'].map(q => `<button data-q="${q}" class="${st.quality === q ? 'active' : ''}">${{ low: 'Эконом', auto: 'Авто', high: 'Максимум' }[q]}</button>`).join('')}</span></div>
+        <div style="margin:8px 0"><span>🖥️ Графика</span>${(st.quality || 'auto') === 'auto' && VC.Scene.qualityLevel ? `<span class="mini" style="opacity:0.75"> · сейчас ${{ low: 'низкая', medium: 'средняя', high: 'высокая' }[VC.Scene.qualityLevel]}</span>` : ''}
+          <div class="toggle-row" style="margin-top:6px">${['auto', 'low', 'medium', 'high'].map(q => `<button data-q="${q}" style="flex:1;padding:6px 2px" class="${(st.quality || 'auto') === q ? 'active' : ''}">${{ auto: 'Авто', low: 'Низкая', medium: 'Средняя', high: 'Высокая' }[q]}</button>`).join('')}</div></div>
         <div class="row" style="justify-content:space-between;margin:8px 0"><span>✏️ Капитан: ${esc(s.name)}</span><button class="btn small" data-x="rename">Изменить</button></div>
         <hr style="border-color:#6b4423">
         ${row('🧪 Режим тестировщика', 'tester')}
@@ -571,7 +572,8 @@
         }));
         m.querySelectorAll('[data-q]').forEach(b => b.addEventListener('click', () => {
           st.quality = b.dataset.q; G().save();
-          UI.confirm('Графика', 'Перезапустить игру, чтобы применить?', 'Перезапуск', () => location.reload());
+          VC.Scene.setQuality(st.quality);
+          close(); P.settings();
         }));
         m.querySelectorAll('[data-speed]').forEach(b => b.addEventListener('click', () => { st.speed = +b.dataset.speed; close(); P.settings(); }));
         m.querySelectorAll('[data-x]').forEach(b => b.addEventListener('click', () => {
